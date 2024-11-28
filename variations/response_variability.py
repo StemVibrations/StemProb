@@ -3,7 +3,7 @@ import os
 from copy import deepcopy
 
 import numpy as np
-import scipy.stats
+import scipy.stats as stats
 from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec
 from stem.additional_processes import ParameterFieldParameters
@@ -66,6 +66,7 @@ class UserVariations():
         If None, the default value is ['TIME', 'DISPLACEMENT_X', 'DISPLACEMENT_Y', 'DISPLACEMENT_Z', 'ACCELERATION_X',
         'ACCELERATION_Y', 'ACCELERATION_Z'].
     """
+
     def __init__(
             self,
             stem_model: stem.model.Model,
@@ -77,7 +78,7 @@ class UserVariations():
             output_coordinates: list,
             num_simulations: int = 100,
             property_name: str | list | None = None,
-            dist_params:  tuple | None = None,
+            dist_params: tuple | None = None,
             random_state: int = None,
             load_direction: str | None = None,
             output_files_dir: str = None,
@@ -153,9 +154,6 @@ class UserVariations():
                         function_type="json_file",
                         field_generator=random_field)
 
-                    # self.model.add_field(
-                    #     part_name=self.model_part,
-                    #     field_parameters=field_params_json)
                     loop_model.add_field(
                         part_name=self.model_part,
                         field_parameters=field_params_json
@@ -206,14 +204,8 @@ class UserVariations():
                     pass
 
         else:
-            raise ValueError("Model part not found in the model")
-
-    # else:
-    #     pass
-    # match sim_type:
-    #     case 'MC' | 'Monte Carlo':
-    #         self._monte_carlo_sim(num_simulations)
-    pass
+            # TODO: Implement functionality for a list of ModelPart objects
+            raise NotImplementedError("Lists of ModelPart objects are not yet implemented")
 
     def plot_results(self,
                      disp_coord: str,
@@ -293,10 +285,6 @@ class UserVariations():
             plt.show()
         plt.close(fig)
 
-    def calculate_soil_variability(self):
-        # Calculate soil variability
-        pass
-
     def _parse_response_vars(
             self,
             response_vars_names: str | list[str] = None
@@ -312,9 +300,6 @@ class UserVariations():
                 return [response_vars_names]
             else:
                 return response_vars_names
-
-    def _generate_random_field(self, matching_part: stem.model.BodyModelPart):
-        pass
 
     def _set_up_rfs(self):
         rfs = []
@@ -387,23 +372,16 @@ class UserVariations():
             results = json.load(f)
             self.calculation_results.append(results)
 
-    def _prepare_calculation_results(self):
-        d = self.response_vars
-        temp = {}
-        for var in d:
-            temp[var] = []
-        return temp
-
     def _set_up_rvs(self, model_part_stem: list | stem.model_part.ModelPart):
         if type(model_part_stem) is stem.model_part.ModelPart:
             unc_dist_type = self.unc_type_str
             match unc_dist_type.lower():
                 case 'gaussian' | 'normal' | 'gauss':
-                    dist = scipy.stats.norm(*self.dist_params)
+                    dist = stats.norm(*self.dist_params)
                 case 'lognormal' | 'log_normal' | 'log_norm':
-                    dist = scipy.stats.lognorm(*self.dist_params)
+                    dist = stats.lognorm(*self.dist_params)
                 case 'uniform' | 'uni':
-                    dist = scipy.stats.uniform(*self.dist_params)
+                    dist = stats.uniform(*self.dist_params)
                 case _:
                     raise NotImplementedError(f"Uncertainty distribution type {unc_dist_type} not implemented")
             return dist.rvs(size=self.num_simulations,
@@ -431,7 +409,9 @@ class UserVariations():
 if __name__ == '__main__':
     model = test_case_2d_model()
     project_params = test_case_2d_model_project_params()
+    # ----
     # Example usage for quantifying spatial variability of soil properties
+    # ----
     # user_variations = UserVariations(stem_model=model,
     #                                  project_params=project_params,
     #                                  input_files_dir='random_field_mc',
@@ -444,8 +424,9 @@ if __name__ == '__main__':
     #                                      (0.5, 1.0, 0.0),
     #                                  ],
     #                                  num_simulations=50)
-
+    # ----
     # Example usage for quantifying variability of load magnitude
+    # ----
     user_variations = UserVariations(stem_model=model,
                                      project_params=project_params,
                                      input_files_dir='random_field_mc',
@@ -463,4 +444,3 @@ if __name__ == '__main__':
     user_variations.plot_results(disp_coord='Y',
                                  node_number=4,
                                  show_plot=True)
-    pass
