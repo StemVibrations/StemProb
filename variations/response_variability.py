@@ -118,7 +118,7 @@ class UserVariations():
             # Check the model part
             model_part_stem = self._get_model_part_by_name(self.model_part)
             # Check which model part needs to be simulated
-            if type(model_part_stem) is BodyModelPart:
+            if type(model_part_stem) is BodyModelPart: # For soil layers and RF
                 # Perform quantification of spatial variability on the soil property
                 random_fields = self._set_up_rfs()
                 # self.model.synchronise_geometry()
@@ -169,7 +169,7 @@ class UserVariations():
                     self._run_post_processing()
                     os.remove(self.output_files_dir)
                     pass
-            elif type(model_part_stem) is ModelPart:
+            elif type(model_part_stem) is ModelPart:  # For loads, BCs. etc
                 random_variates = self._set_up_rvs(model_part_stem)
 
                 for rv in random_variates:
@@ -431,7 +431,7 @@ if __name__ == '__main__':
                                      project_params=project_params,
                                      input_files_dir='random_field_mc',
                                      output_var_names=['disp', 'acceleration'],
-                                     model_part='point_load',
+                                     model_part='point_load',     #can be a list of loads or list of model part or both?
                                      load_direction='Y',
                                      dist_params=(2, 1),
                                      unc_type='lognormal',

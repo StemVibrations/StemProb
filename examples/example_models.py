@@ -18,6 +18,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
+import tkinter 
+print("Tcl/Tk version:", tkinter.Tcl().eval('info patchlevel'))
 
 """
 Contains test/example cases of models with defined soil layers
@@ -186,7 +188,7 @@ def plot_response_output(responses_dict: dict,
 
 
 def run_2d_model():
-    NUM_SIMULATIONS = 100
+    NUM_SIMULATIONS = 1        ###################
     # SEEDS = np.random.randint(0, 1000, NUM_SIMULATIONS)
     SEEDS = np.arange(NUM_SIMULATIONS)
 
