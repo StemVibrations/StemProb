@@ -3,11 +3,7 @@ Sensitivity analysis tutorial -- Random Field (spatial variability).
 
 Keeps all nine parameters fixed at their Step 1 reference values, and
 instead varies the *spatial* distribution of the clay layer's Young's
-modulus, using STEM's built-in random field generator (the same mechanism
-as tutorial 4 in tutorials_RF.rst). Only the random field seed changes from
-run to run. One of the seeds (14) is also the "single example" seed used
-in the tutorial text; a deterministic (no RF) run at the same reference
-parameters is included as a reference line on the output distribution.
+modulus, using STEM's built-in random field generator. 
 
 Reuses build_model / run_model from tutorial_sensitivity_base.py.
 """
