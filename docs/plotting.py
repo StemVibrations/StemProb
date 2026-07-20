@@ -804,6 +804,182 @@ class MorrisPlotting:
         plt.close(fig)
 
 
+class SensitivityComparisonPlotting:
+    """
+    Class for comparing results from different sensitivity analysis methods (Morris vs SRC).
+    """
+
+    @staticmethod
+    def plot_method_comparison(morris_results: Dict, src_results: Dict,
+                              save_plots: bool = True, output_dir: str = "sensitivity_plots"):
+        """
+        Create side-by-side comparison plots of Morris and RBD sensitivity results.
+
+        Parameters:
+        -----------
+        morris_results : Dict
+            Dictionary from Morris sensitivity analysis (from JSON or get_sensitivity_summary())
+        src_results : Dict
+            Dictionary from RBD sensitivity analysis (from JSON or get_sensitivity_summary())
+        save_plots : bool
+            Whether to save plots to files
+        output_dir : str
+            Directory to save plots
+        """
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+
+        # Extract rankings from both methods
+        morris_ranking = morris_results.get('ranking', [])
+        src_ranking = src_results.get('ranking', [])
+
+        # Create side-by-side bar chart comparison
+        SensitivityComparisonPlotting._plot_ranking_comparison(
+            morris_ranking, src_ranking, save_plots, output_dir
+        )
+
+        # Create scatter plot showing correlation between rankings
+        SensitivityComparisonPlotting._plot_ranking_scatter(
+            morris_ranking, src_ranking, save_plots, output_dir
+        )
+
+    @staticmethod
+    def _plot_ranking_comparison(morris_ranking: list, src_ranking: list,
+                                 save_plots: bool, output_dir: str):
+        """
+        Create side-by-side bar charts comparing parameter rankings from both methods.
+        """
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+        # Extract names and values
+        morris_names = [r[0] for r in morris_ranking]
+        morris_values = [r[1] for r in morris_ranking]
+        src_names = [r[0] for r in src_ranking]
+        src_values = [r[1] for r in src_ranking]
+
+        # Morris plot
+        colors_morris = plt.cm.Blues(np.linspace(0.5, 0.9, len(morris_names)))
+        ax1.barh(range(len(morris_names)), morris_values, color=colors_morris)
+        ax1.set_yticks(range(len(morris_names)))
+        ax1.set_yticklabels(morris_names, fontsize=10)
+        ax1.set_xlabel('Sensitivity Index (mu*)', fontsize=11, fontweight='bold')
+        ax1.set_title('Morris Sensitivity Ranking', fontsize=12, fontweight='bold')
+        ax1.invert_yaxis()
+        ax1.grid(axis='x', alpha=0.3)
+
+        # RBD plot
+        colors_rbd = plt.cm.Oranges(np.linspace(0.5, 0.9, len(src_names)))
+        ax2.barh(range(len(src_names)), src_values, color=colors_rbd)
+        ax2.set_yticks(range(len(src_names)))
+        ax2.set_yticklabels(src_names, fontsize=10)
+        ax2.set_xlabel('Sensitivity Index (|correlation|)', fontsize=11, fontweight='bold')
+        ax2.set_title('SRC Sensitivity Ranking', fontsize=12, fontweight='bold')
+        ax2.invert_yaxis()
+        ax2.grid(axis='x', alpha=0.3)
+
+        plt.tight_layout()
+
+        if save_plots:
+            filename = os.path.join(output_dir, 'sensitivity_methods_comparison.png')
+            plt.savefig(filename, dpi=150, bbox_inches='tight')
+            print(f"Saved comparison plot: {filename}")
+
+        plt.close(fig)
+
+    @staticmethod
+    def _plot_ranking_scatter(morris_ranking: list, src_ranking: list,
+                              save_plots: bool, output_dir: str):
+        """
+        Create scatter plot showing how parameters rank differently between methods.
+        """
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        # Create mapping of parameter names to rankings for both methods
+        morris_dict = {r[0]: i + 1 for i, r in enumerate(morris_ranking)}
+        src_dict = {r[0]: i + 1 for i, r in enumerate(src_ranking)}
+
+        # Get all parameter names
+        all_params = set(morris_dict.keys()) | set(src_dict.keys())
+
+        # Create arrays for scatter plot
+        morris_ranks = []
+        src_ranks = []
+        labels = []
+
+        for param in sorted(all_params):
+            morris_rank = morris_dict.get(param, len(morris_dict) + 1)
+            rbd_rank = src_dict.get(param, len(src_dict) + 1)
+            morris_ranks.append(morris_rank)
+            src_ranks.append(rbd_rank)
+            labels.append(param)
+
+        # Scatter plot
+        colors = plt.cm.tab10(np.linspace(0, 1, len(labels)))
+        scatter = ax.scatter(morris_ranks, src_ranks, s=200, c=colors, alpha=0.7, edgecolors='black', linewidth=2)
+
+        # Add labels for each point
+        for i, label in enumerate(labels):
+            ax.annotate(label, (morris_ranks[i], src_ranks[i]),
+                       xytext=(5, 5), textcoords='offset points', fontsize=9, fontweight='bold')
+
+        # Add diagonal line (perfect agreement)
+        max_rank = max(len(morris_dict), len(src_dict))
+        ax.plot([0.5, max_rank + 0.5], [0.5, max_rank + 0.5], 'k--', alpha=0.3, linewidth=2, label='Perfect agreement')
+
+        ax.set_xlabel('Morris Ranking (1 = most sensitive)', fontsize=11, fontweight='bold')
+        ax.set_ylabel('SRC Ranking (1 = most sensitive)', fontsize=11, fontweight='bold')
+        ax.set_title('Sensitivity Method Ranking Comparison', fontsize=12, fontweight='bold')
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(0.5, max_rank + 0.5)
+        ax.set_ylim(0.5, max_rank + 0.5)
+
+        plt.tight_layout()
+
+        if save_plots:
+            filename = os.path.join(output_dir, 'sensitivity_methods_ranking_scatter.png')
+            plt.savefig(filename, dpi=150, bbox_inches='tight')
+            print(f"Saved scatter plot: {filename}")
+
+        plt.close(fig)
+
+    @staticmethod
+    def load_and_compare(morris_json: str = 'morris_sensitivity_results.json',
+                        src_json: str = 'rbd_sensitivity_results.json',
+                        save_plots: bool = True, output_dir: str = 'sensitivity_plots'):
+        """
+        Load results from JSON files and create comparison plots.
+
+        Parameters:
+        -----------
+        morris_json : str
+            Path to Morris results JSON file
+        src_json : str
+            Path to RBD results JSON file
+        save_plots : bool
+            Whether to save plots
+        output_dir : str
+            Output directory for plots
+        """
+        import json
+
+        # Load Morris results
+        with open(morris_json, 'r') as f:
+            morris_data = json.load(f)
+
+        # Load RBD results
+        with open(src_json, 'r') as f:
+            rbd_data = json.load(f)
+
+        # Create comparison plots
+        SensitivityComparisonPlotting.plot_method_comparison(
+            morris_data['summary'],
+            rbd_data['summary'],
+            save_plots=save_plots,
+            output_dir=output_dir
+        )
+
+
 class VelocityResponsePlotting:
     """
     Class for plotting velocity response data and processed metrics.

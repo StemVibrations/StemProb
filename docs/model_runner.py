@@ -9,30 +9,42 @@ import numpy as np
 import json
 import os
 from typing import Dict, Any, Optional, Tuple
-import stem
-from stem.additional_processes import ParameterFieldParameters
 from stem.boundary import DisplacementConstraint
-from stem.field_generator import RandomFieldGenerator
 from stem.load import MovingLoad
 from stem.model import Model
-from stem.output import GaussPointOutput, NodalOutput, VtkOutputParameters, JsonOutputParameters
-from stem.soil_material import OnePhaseSoil, LinearElasticSoil, SoilMaterial, SaturatedBelowPhreaticLevelLaw
+from stem.output import NodalOutput, JsonOutputParameters
 from stem.solver import AnalysisType, TimeIntegration, DisplacementConvergenceCriteria, NewtonRaphsonStrategy, \
     NewmarkScheme, StressInitialisationType, Amgcl, SolverSettings, Problem, SolutionType
 from stem.stem import Stem
 
 # Import processing function
-from process_data import process_response_data
+# Optional dependency: sensitivity post-processing relies on SignalProcessingTools.
+# This repository is also used for "model check" runs where we only need to write VTK.
+# Therefore we import post-processing utilities lazily/defensively.
+try:
+    from process_data import process_response_data
+except ModuleNotFoundError:  # e.g. missing `SignalProcessingTools`
+    process_response_data = None  # type: ignore[assignment]
+
+# RF helper makes RandomFieldGenerator construction robust across STEM builds.
+from random_field_utils import create_random_field_generator
+
+from parameter_field_utils import create_parameter_field_parameters
 
 
 class ModelRunner:
     """
     Class to run the 3D geotechnical model with specific parameter sets.
-    
+
     This class is designed to work with sensitivity analysis by providing
     a clean interface to run the model with given parameter values.
     """
-    
+
+    # Geometry constants — override in subclasses to switch model size
+    SOIL_X_MAX   = 5.0    # cross-track soil width (m)
+    TRACK_LENGTH = 50.0   # along-track extrusion length (m)
+    END_TIME     = 2.0    # analysis end time (s)
+
     def __init__(self, input_files_dir: str = 'random_field_mc', simulation_id: int = 0):
         """
         Initialize the model runner.
@@ -47,87 +59,105 @@ class ModelRunner:
         self.input_files_dir = input_files_dir
         self.simulation_id = simulation_id
         self.ndim = 3
+        self.rf_seed = 14     # random-field seed; override to vary RF realisations
+        self.apply_rf = False # set to True only for explicit RF ensemble studies
         
-    def run_model_with_parameters(self, parameters: np.ndarray, 
+    def run_model_with_parameters(self, parameters: np.ndarray,
                                  output_variable: str = 'DISPLACEMENT_Y',
-                                 extract_method: str = 'max') -> Dict[str, Any]:
+                                 extract_method: str = 'max',
+                                 output_mode: str = 'velocity') -> Dict[str, Any]:
         """
-        Run the 3D model with given parameters and return processed response information.
-        
-        Parameters:
-        -----------
-        parameters : np.ndarray
-            Array of 9 parameters [clay_density, clay_young_modulus, sand_density,
-                                  sand_young_modulus, embankment_density,
-                                  embankment_young_modulus, vertical_load,
-                                  rayleigh_k, rayleigh_m]
-        output_variable : str
-            Variable to extract from results (default: 'DISPLACEMENT_Y')
-            Note: For velocity-based processing, use 'VELOCITY_Y'
-        extract_method : str
-            Method to extract single value from time series ('max', 'min', 'mean', 'final')
-            Note: This is kept for backward compatibility but velocity processing is now used
-            
-        Returns:
-        --------
-        Dict[str, Any]
-            Dictionary containing:
-            - 'V_y_max': Maximum absolute velocity Y (mm/s)
-            - 'V_eff_max': Maximum effective velocity (mm/s)
-            - 'PSD_max': Maximum PSD ((mm/s)^2/Hz)
-            - 'Freq_PSD_max': Frequency at max PSD (Hz)
-            - 'summary_value': V_eff_max (for backward compatibility with sensitivity analysis)
-            - 'time': np.ndarray of time values
-            - 'response_y': np.ndarray of velocity Y values over time (mm/s)
-            - 'response_x': np.ndarray of displacement X values over time (for backward compatibility)
-            - 'processed_data': Full processed data dictionary from process_response_data
+        Run the 3D model and return all response metrics in one dict.
+
+        output_mode controls which metric becomes 'summary_value' (the SA target).
+          'velocity'     -> summary_value = V_eff_max  (default)
+          'v_y_max'      -> summary_value = V_y_max
+          'psd'          -> summary_value = PSD_max
+          'displacement' -> summary_value = max |DISPLACEMENT_Y|
+
+        Returned keys (always present):
+          summary_value, disp_y_max, response_y, response_x,
+          V_y_max, V_eff_max, PSD_max, Freq_PSD_max,
+          time, velocity_y, v_eff, frequency_Pxx, Pxx
         """
-        # Unpack parameters
         clay_density, clay_young_modulus, sand_density, sand_young_modulus, \
         embankment_density, embankment_young_modulus, vertical_load, \
         rayleigh_k, rayleigh_m = parameters
-        
-        # Create model
+
         model = self._create_model_with_parameters(
             clay_density, clay_young_modulus, sand_density, sand_young_modulus,
             embankment_density, embankment_young_modulus, vertical_load,
             rayleigh_k, rayleigh_m
         )
-        
-        # Run analysis
+
         try:
             results = self._run_analysis(model)
-            
-            # Extract and process velocity data
-            processed_data = self._extract_and_process_velocity(results)
+            time_array, velocity_y_array = self._extract_velocity_from_results(results)
 
-            # Return processed metrics
+            # --- Displacement ---
+            _, _, response_y, response_x = self._extract_output_value(
+                results, 'DISPLACEMENT_Y', extract_method
+            )
+            disp_y_max = float(np.nanmax(np.abs(response_y))) if response_y is not None else np.nan
+
+            # --- Velocity metrics from process_data ---
+            if process_response_data is not None:
+                pd = process_response_data(time_array, velocity_y_array)
+            else:
+                pd = None
+
+            # --- summary_value for sensitivity analysis ---
+            # output_mode options:
+            #   'velocity'     -> V_eff_max  (root-mean-square effective velocity, mm/s)
+            #   'v_y_max'      -> V_y_max    (peak instantaneous velocity in Y, mm/s)
+            #   'psd'          -> PSD_max    (peak power spectral density, (mm/s)^2/Hz)
+            #   'displacement' -> max |DISPLACEMENT_Y| (m)
+            mode = output_mode.lower()
+            if mode == 'displacement':
+                summary_value = disp_y_max
+            elif mode == 'v_y_max':
+                summary_value = pd['V_y_max'] if pd is not None else np.nan
+            elif mode == 'psd':
+                summary_value = pd['PSD_max'] if pd is not None else np.nan
+            else:  # 'velocity' -> V_eff_max (default)
+                summary_value = pd['V_eff_max'] if pd is not None else np.nan
+
             return {
-                'V_y_max': processed_data['V_y_max'],
-                'V_eff_max': processed_data['V_eff_max'],
-                'PSD_max': processed_data['PSD_max'],
-                'Freq_PSD_max': processed_data['Freq_PSD_max'],
-                'summary_value': processed_data['V_eff_max'],  # For backward compatibility
-                'time': processed_data['time'],
-                'response_y': processed_data['velocity_y'],  # Velocity Y in mm/s
-                'response_x': None,  # Not used for velocity processing
-                'processed_data': processed_data
+                'summary_value': summary_value,
+                # displacement
+                'disp_y_max': disp_y_max,
+                'response_y': response_y,
+                'response_x': response_x,
+                # velocity metrics (from process_data)
+                'V_y_max':       pd['V_y_max']        if pd else np.nan,
+                'V_eff_max':     pd['V_eff_max']       if pd else np.nan,
+                'PSD_max':       pd['PSD_max']         if pd else np.nan,
+                'Freq_PSD_max':  pd['Freq_PSD_max']    if pd else np.nan,
+                'time':          time_array,
+                'velocity_y':    pd['velocity_y']      if pd else velocity_y_array * 1000,
+                'v_eff':         pd['v_eff']           if pd else None,
+                'frequency_Pxx': pd['frequency_Pxx']   if pd else None,
+                'Pxx':           pd['Pxx']             if pd else None,
             }
-            
+
         except Exception as e:
             print(f"Error running model with parameters: {e}")
             import traceback
             traceback.print_exc()
             return {
+                'summary_value': np.nan,
+                'disp_y_max': np.nan,
+                'response_y': None,
+                'response_x': None,
                 'V_y_max': np.nan,
                 'V_eff_max': np.nan,
                 'PSD_max': np.nan,
                 'Freq_PSD_max': np.nan,
-                'summary_value': np.nan,
                 'time': None,
-                'response_y': None,
-                'response_x': None,
-                'processed_data': None
+                'velocity_y': None,
+                'v_eff': None,
+                'frequency_Pxx': None,
+                'Pxx': None,
             }
     
     def _create_model_with_parameters(self, clay_density: float, clay_young_modulus: float,
@@ -178,28 +208,46 @@ class ModelRunner:
         )
         
         # Define geometry coordinates
-        soil1_coordinates = [(0.0, -2.0, 0.0), (5.0, -2.0, 0.0), (5.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
-        soil2_coordinates = [(0.0, 1.0, 0.0), (5.0, 1.0, 0.0), (5.0, 2.0, 0.0), (0.0, 2.0, 0.0)]
+        soil1_coordinates = [(0.0, -2.0, 0.0), (self.SOIL_X_MAX, -2.0, 0.0), (self.SOIL_X_MAX, 1.0, 0.0), (0.0, 1.0, 0.0)]
+        soil2_coordinates = [(0.0, 1.0, 0.0), (self.SOIL_X_MAX, 1.0, 0.0), (self.SOIL_X_MAX, 2.0, 0.0), (0.0, 2.0, 0.0)]
         embankment_coordinates = [(0.0, 2.0, 0.0), (3.0, 2.0, 0.0), (1.5, 3.0, 0.0), (0.75, 3.0, 0.0), (0, 3.0, 0.0)]
-        
+
         # Add soil layers
-        model.extrusion_length = 50
+        model.extrusion_length = self.TRACK_LENGTH
         model.add_soil_layer_by_coordinates(soil1_coordinates, sand_material, "soil_layer_1")
         model.add_soil_layer_by_coordinates(soil2_coordinates, clay_material, "soil_layer_2")
         model.add_soil_layer_by_coordinates(embankment_coordinates, embankment_material, "embankment_layer")
+
+        # Spatial random field for Young's modulus on `soil_layer_2`
+        if self.apply_rf:
+            random_field_generator = create_random_field_generator(
+                dim=3,
+                cov=0.1,
+                model_name="Gaussian",
+                v_scale_fluctuation=1,
+                anisotropy=[10.0],
+                angle=[0],
+                seed=self.rf_seed,
+            )
+            field_parameters_json = create_parameter_field_parameters(
+                property_name="YOUNG_MODULUS",
+                function_type="json_file",
+                field_generator=random_field_generator,
+            )
+            model.add_field(part_name="soil_layer_2", field_parameters=field_parameters_json)
         
         # Add loads
-        load_coordinates = [(0.75, 3.0, 0.0), (0.75, 3.0, 50.0)]
-        moving_load = MovingLoad(load=[0.0, vertical_load, 0.0], direction=[1, 1, 1], 
+        load_coordinates = [(0.75, 3.0, 0.0), (0.75, 3.0, self.TRACK_LENGTH)]
+        moving_load = MovingLoad(load=[0.0, vertical_load, 0.0], direction_signs=[1, 1, 1],
                                velocity=30, origin=[0.75, 3.0, 0.0], offset=0.0)
         model.add_load_by_coordinates(load_coordinates, moving_load, "moving_load")
         
         # Add boundary conditions
         no_displacement_parameters = DisplacementConstraint(
-            active=[True, True, True], is_fixed=[True, True, True], value=[0, 0, 0]
+            is_fixed=[True, True, True], value=[0, 0, 0]
         )
         roller_displacement_parameters = DisplacementConstraint(
-            active=[True, True, True], is_fixed=[True, False, True], value=[0, 0, 0]
+            is_fixed=[True, False, True], value=[0, 0, 0]
         )
         
         model.add_boundary_condition_by_geometry_ids(2, [1], no_displacement_parameters, "base_fixed")
@@ -212,7 +260,7 @@ class ModelRunner:
         # Configure solver settings
         analysis_type = AnalysisType.MECHANICAL
         solution_type = SolutionType.DYNAMIC
-        time_integration = TimeIntegration(start_time=0.0, end_time=2, delta_time=0.1, 
+        time_integration = TimeIntegration(start_time=0.0, end_time=self.END_TIME, delta_time=0.1,
                                          reduction_factor=1.0, increase_factor=1.0)
         convergence_criterion = DisplacementConvergenceCriteria(
             displacement_relative_tolerance=1.0e-4, displacement_absolute_tolerance=1.0e-9
@@ -254,13 +302,12 @@ class ModelRunner:
         """
         # Define output coordinates (updated from original location for better measurement)
         output_coordinates = [
-            (3.0, 2.0, 0.0),    # Surface point at start of embankment
-            (3.0, 2.0, 25.0),   # Surface point at midpoint (extrusion length = 50m)
+            (3.0, 2.0, 0.0),                       # start of embankment
+            (3.0, 2.0, self.TRACK_LENGTH / 2.0),   # midpoint
         ]
         
         # Add output settings
         nodal_results = [NodalOutput.DISPLACEMENT, NodalOutput.VELOCITY]
-        gauss_point_results = [GaussPointOutput.YOUNG_MODULUS]
         
         model.add_output_settings_by_coordinates(
             coordinates=output_coordinates,
@@ -290,59 +337,57 @@ class ModelRunner:
             print(f"Results file not found: {path_to_results}")
             return {}
     
-    def _extract_and_process_velocity(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_velocity_from_results(self, results: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Extract velocity data from results and process it to compute key metrics.
-        
-        Parameters:
-        -----------
-        results : Dict[str, Any]
-            Analysis results containing TIME and node data with VELOCITY_Y
-            
-        Returns:
-        --------
-        Dict[str, Any]
-            Processed data dictionary from process_response_data
+        Extract time and velocity Y from STEM results.
+        Prefers VELOCITY_Y; if absent, derives velocity from DISPLACEMENT_Y.
         """
         if not results:
             raise ValueError("Empty results dictionary")
-        
-        # Find the node with data (typically NODE_22 for 3D model at output coordinates)
-        node_key = None
-        preferred_node_id = "NODE_22"
 
-        if preferred_node_id in results:
-            node_key = preferred_node_id
-        else:
-            # Fallback: search for any node key
-            for key in results:
-                if key.startswith('NODE_') and isinstance(results[key], dict):
-                    node_key = key
-                    break
+        # STEM assigns node IDs internally and they vary between run types.
+        # Select the node with the highest z-coordinate (midpoint of the extrusion).
+        node_keys = [k for k in results if k.startswith('NODE_') and isinstance(results[k], dict)]
+        if not node_keys:
+            raise ValueError(f"No node data found. Keys: {list(results.keys())}")
 
-        node_data = results.get(node_key) if node_key else None
-        
+        def _z(key):
+            coords = results[key].get('COORDINATES', [0, 0, 0])
+            return coords[2] if len(coords) > 2 else 0.0
+
+        node_key = max(node_keys, key=_z)
+        node_data = results[node_key]
         if node_data is None:
-            raise ValueError(f"No node data found in results. Available keys: {list(results.keys())}")
-        
-        # Extract time and velocity data
-        time_values = results.get('TIME', None)
-        velocity_y = node_data.get('VELOCITY_Y', None)
-        
+            raise ValueError(f"No node data found. Keys: {list(results.keys())}")
+
+        time_values = results.get('TIME')
         if time_values is None:
             raise ValueError("TIME not found in results")
-        if velocity_y is None:
-            raise ValueError(f"VELOCITY_Y not found in node {node_key}. Available keys: {list(node_data.keys())}")
-        
-        # Convert to numpy arrays
+
         time_array = np.asarray(time_values, dtype=float)
-        velocity_y_array = np.asarray(velocity_y, dtype=float)
-        
-        # Process the velocity data
-        processed_data = process_response_data(time_array, velocity_y_array)
-        
-        return processed_data
-    
+        velocity_y = node_data.get('VELOCITY_Y')
+
+        if velocity_y is not None:
+            velocity_y_array = np.asarray(velocity_y, dtype=float)
+        else:
+            disp_y = node_data.get('DISPLACEMENT_Y')
+            if disp_y is None:
+                raise ValueError(f"Neither VELOCITY_Y nor DISPLACEMENT_Y in {node_key}")
+            d = np.asarray(disp_y, dtype=float)
+            velocity_y_array = np.gradient(d, time_array)
+
+        return time_array, velocity_y_array
+
+    def _extract_and_process_velocity(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract velocity, process via process_response_data. Kept for backward compatibility."""
+        time_array, velocity_y_array = self._extract_velocity_from_results(results)
+        if process_response_data is None:
+            raise ModuleNotFoundError(
+                "process_response_data is unavailable (likely missing dependency "
+                "`SignalProcessingTools`). Install it to enable velocity/PSD post-processing."
+            )
+        return process_response_data(time_array, velocity_y_array)
+
     def _extract_output_value(self, results: Dict[str, Any], output_variable: str, 
                             extract_method: str) -> Tuple[float, Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
         """
@@ -364,20 +409,17 @@ class ModelRunner:
         if not results:
             return np.nan, None, None, None
         
-        # Find the node with data (typically NODE_22 for 3D model at output coordinates)
-        node_key = None
-        preferred_node_id = "NODE_22"
+        # Select the node with the highest z-coordinate (midpoint of the extrusion).
+        node_keys = [k for k in results if k.startswith('NODE_') and isinstance(results[k], dict)]
+        if not node_keys:
+            return np.nan, None, None, None
 
-        if preferred_node_id in results:
-            node_key = preferred_node_id
-        else:
-            # Fallback: search for any node key
-            for key in results:
-                if key.startswith('NODE_') and isinstance(results[key], dict):
-                    node_key = key
-                    break
+        def _z(key):
+            coords = results[key].get('COORDINATES', [0, 0, 0])
+            return coords[2] if len(coords) > 2 else 0.0
 
-        node_data = results.get(node_key) if node_key else None
+        node_key = max(node_keys, key=_z)
+        node_data = results.get(node_key)
         
         if node_data is None or output_variable not in node_data:
             print(f"Output variable {output_variable} not found in results")
@@ -432,22 +474,20 @@ class FastModelRunner(ModelRunner):
         super().__init__(input_files_dir, simulation_id)
         self.results_cache = {}
     
-    def run_model_with_parameters(self, parameters: np.ndarray, 
+    def run_model_with_parameters(self, parameters: np.ndarray,
                                  output_variable: str = 'DISPLACEMENT_Y',
-                                 extract_method: str = 'max') -> float:
+                                 extract_method: str = 'max',
+                                 output_mode: str = 'velocity') -> Dict[str, Any]:
         """
-        Fast version that uses cached results when possible.
+        Fast version that caches results by parameter hash.
+        Cache key includes output_mode so different modes don't collide.
         """
-        # Create a hash of parameters for caching
-        param_hash = hash(tuple(parameters))
-        
+        param_hash = hash((tuple(parameters), output_mode))
+
         if param_hash in self.results_cache:
             return self.results_cache[param_hash]
-        
-        # Run the full model
-        result = super().run_model_with_parameters(parameters, output_variable, extract_method)
-        
-        # Cache the result
+
+        result = super().run_model_with_parameters(parameters, output_variable, extract_method, output_mode)
+
         self.results_cache[param_hash] = result
-        
         return result

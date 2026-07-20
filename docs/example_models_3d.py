@@ -1,32 +1,38 @@
 import json
 import os
 import stem
-from stem.additional_processes import ParameterFieldParameters
 from stem.boundary import DisplacementConstraint
-from stem.field_generator import RandomFieldGenerator
-from stem.load import PointLoad, MovingLoad
+from stem.load import MovingLoad
 from stem.model import Model
 from stem.output import GaussPointOutput, NodalOutput, VtkOutputParameters, JsonOutputParameters
 from stem.soil_material import OnePhaseSoil, LinearElasticSoil, SoilMaterial, SaturatedBelowPhreaticLevelLaw
-from stem.solver import AnalysisType, TimeIntegration, DisplacementConvergenceCriteria, NewtonRaphsonStrategy, \
+from stem.solver import AnalysisType, Cg, TimeIntegration, DisplacementConvergenceCriteria, NewtonRaphsonStrategy, \
     NewmarkScheme, StressInitialisationType, Amgcl, SolverSettings, Problem, SolutionType
 from stem.stem import Stem
 import numpy as np
 import scipy.stats as stats
-from scipy.stats import qmc
-
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 
 # Import sensitivity analysis modules
-from sensitivity_analysis import MorrisSensitivityAnalysis, SensitivityAnalysisRunner
+from sensitivity_analysis import SensitivityAnalysisRunner
 from model_runner import ModelRunner, FastModelRunner
+
+try:
+    from process_data import process_response_data
+except ModuleNotFoundError:
+    process_response_data = None  # type: ignore[assignment]
+
+from IBS import assess_ibs
 # Import sampling comparison module
 from sampling_comparison import SamplingComparisonRunner
 # Import plotting and post-processing utilities
 from plotting import PlottingUtilities
 from postprocessing import PostProcessingUtilities
 
+# RF helper makes RandomFieldGenerator construction robust across STEM builds.
+from random_field_utils import create_random_field_generator
+
+from parameter_field_utils import create_parameter_field_parameters
 
 """
 Contains test/example cases of models with defined soil layers
@@ -344,8 +350,20 @@ def run_sensitivity_analysis(num_trajectories=10, num_levels=4, seed=42,
     return sensitivity_results
 
 
-def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only=False, 
-                 show_plots=True, show_detailed_plots=True, sampling_method=None):
+def run_3d_model(
+    use_lhs=True,
+    lhs_seed=42,
+    num_simulations=10,
+    check_model_only=False,
+    show_plots=True,
+    show_detailed_plots=True,
+    sampling_method=None,
+    input_files_dir="random_field_mc",
+    use_random_field=True,
+    rf_seed=14,
+    rf_part_name="soil_layer_2",
+    rf_property_name="YOUNG_MODULUS",
+):
     """
     Run 3D model with Monte Carlo simulations.
     
@@ -373,12 +391,21 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
     SEEDS = np.arange(NUM_SIMULATIONS)
     
     
-    input_files_dir = 'random_field_mc'
     ndim = 3
 
-    responses_var = {}
-    responses_var['DISPLACEMENT_Y'] = []
-    responses_var['DISPLACEMENT_X'] = []
+    responses_var = {
+        'DISPLACEMENT_Y': [],
+        'DISPLACEMENT_X': [],
+        'V_y_max':         [],
+        'V_eff_max':        [],
+        'PSD_max':          [],
+        'Freq_PSD_max':     [],
+        'ibs_summary_value': [],
+        'ibs_v_eff':        [],   # list of arrays (one per simulation)
+        'ibs_Lv_dB':        [],   # list of arrays
+        'ibs_fdom':         [],
+        'ibs_fc_bands':     None, # same for all simulations; set on first run
+    }
 
     # Determine sampling method (backward compatibility with use_lhs)
     if sampling_method is None:
@@ -407,7 +434,6 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
 
         model = Model(ndim)
 
-        soil = default_2d_soil_material()
         clay = clay_soil()
         sand = sand_soil()
         embankment = embankment_material()
@@ -472,7 +498,7 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
             # Generate rayleigh_k and rayleigh_m (normal distribution with COV 5%)
             rng_rayleigh = np.random.default_rng(SEEDS[i] + 700)
             mean_rayleigh_k = 0.0002
-            mean_rayleigh_m = 0.6
+            mean_rayleigh_m = 0.5
             std_rayleigh_k = mean_rayleigh_k * cov
             std_rayleigh_m = mean_rayleigh_m * cov
             random_values["rayleigh_k"] = rng_rayleigh.normal(loc=mean_rayleigh_k, scale=std_rayleigh_k)
@@ -494,7 +520,7 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
         else:
             vertical_load_value = VerticalLoad[i]
         
-        # Collect all 9 variables for this simulation (7 original + 2 rayleigh)
+        # Collect all variables for this simulation (9 material/load + RF parameters)
         simulation_data = {
             "clay_density": random_values["clay_density"],
             "clay_young_modulus": random_values["clay_young_modulus"],
@@ -504,7 +530,15 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
             "embankment_young_modulus": random_values["embankment_young_modulus"],
             "vertical_load": vertical_load_value,
             "rayleigh_k": random_values["rayleigh_k"],
-            "rayleigh_m": random_values["rayleigh_m"]
+            "rayleigh_m": random_values["rayleigh_m"],
+            "rf_enabled": use_random_field,
+            "rf_seed": rf_seed if use_random_field else None,
+            "rf_part": rf_part_name if use_random_field else None,
+            "rf_property": rf_property_name if use_random_field else None,
+            "rf_cov": 0.1 if use_random_field else None,
+            "rf_model": "Gaussian" if use_random_field else None,
+            "rf_anisotropy": [20.0] if use_random_field else None,
+            "rf_v_scale": 1 if use_random_field else None,
         }
         
         # Store in the collection dictionary
@@ -552,9 +586,27 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
             embankment_with_random_properties, "embankment_layer"
         )
 
+        # Add spatial random field to the chosen property (STEM/Kratos reads it from JSON)
+        if use_random_field:
+            random_field_generator = create_random_field_generator(
+                dim=3,
+                cov=0.1,
+                model_name="Gaussian",
+                v_scale_fluctuation=1,
+                anisotropy=[20.0],
+                angle=[0],
+                seed=rf_seed,
+            )
+            field_parameters_json = create_parameter_field_parameters(
+                property_name=rf_property_name,
+                function_type="json_file",
+                field_generator=random_field_generator,
+            )
+            model.add_field(part_name=rf_part_name, field_parameters=field_parameters_json)
+
         load_coordinates = [(0.75, 3.0, 0.0), (0.75, 3.0, 50.0)]
 
-        moving_load = MovingLoad(load=[0.0, vertical_load_value, 0.0], direction=[1, 1, 1], velocity=30, origin=[0.75, 3.0, 0.0],
+        moving_load = MovingLoad(load=[0.0, vertical_load_value, 0.0], direction_signs=[1, 1, 1], velocity=30, origin=[0.75, 3.0, 0.0],
                          offset=0.0)
         model.add_load_by_coordinates(load_coordinates, moving_load, "moving_load")
         
@@ -565,9 +617,9 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
             (1.4, 3.0, 25.0),  # Surface point at midpoint (extrusion length = 50m)
         ]
 
-        # Synchronize geometry and display for verification
         model.synchronise_geometry()
-        model.show_geometry(show_surface_ids=True, show_line_ids=True)  
+        if check_model_only:
+            model.show_geometry(show_surface_ids=True, show_line_ids=True)
         
         # Define boundary conditions
         # Fixed boundary: all DOFs fixed (base of model)
@@ -577,9 +629,8 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
         roller_displacement_parameters = DisplacementConstraint(active=[True, True, True],
                                                                 is_fixed=[True, False, True], value=[0, 0, 0])
 
-        # Define output variables to track
-        nodal_results = [NodalOutput.DISPLACEMENT]  # Track displacement at nodes
-        gauss_point_results = [GaussPointOutput.YOUNG_MODULUS]  # Track Young's modulus at Gauss points   
+        nodal_results = [NodalOutput.DISPLACEMENT, NodalOutput.VELOCITY]
+        gauss_point_results = [GaussPointOutput.YOUNG_MODULUS]
        
         # Apply boundary conditions to geometry
         # Base is fully fixed (surface ID 1)
@@ -607,7 +658,7 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
         # Solution strategy
         strategy_type = NewtonRaphsonStrategy()  # Nonlinear solver strategy
         scheme_type = NewmarkScheme()            # Time integration scheme
-        linear_solver_settings = Amgcl()         # Linear solver (AMGCL)
+        linear_solver_settings = Cg(scaling=True)         # Linear solver (AMGCL) #linear_solver_settings = Amgcl()  linear_solver_settings = Cg(scaling=True)   
         stress_initialisation_type = StressInitialisationType.NONE  # No initial stress
         
         # Configure solver with all settings including Rayleigh damping
@@ -630,8 +681,8 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
                          number_of_threads=1, settings=solver_settings)
         model.project_parameters = problem
         
-        # Note: Material properties (density and Young's modulus) are now generated 
-        # as single random values per simulation, not as spatial random fields
+        # Note: density/mean Young's modulus are still sampled as single values per simulation;
+        # the spatial random field adds fluctuations to Young's modulus on `soil_layer_2`.
 
         model.add_output_settings_by_coordinates(
             coordinates=output_coordinates,
@@ -668,11 +719,44 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
 
         with open(path_to_results) as f:
             calculated_response = json.load(f)
-            if i == 0:
-                responses_var['TIME'] = calculated_response['TIME']
-            results_node = calculated_response['NODE_22']     
-            responses_var['DISPLACEMENT_Y'].append(results_node['DISPLACEMENT_Y'])
-            responses_var['DISPLACEMENT_X'].append(results_node['DISPLACEMENT_X'])
+
+        if i == 0:
+            responses_var['TIME'] = calculated_response['TIME']
+
+        # STEM assigns node IDs internally; select midpoint node by highest z-coordinate.
+        node_keys = [k for k in calculated_response if k.startswith('NODE_') and isinstance(calculated_response[k], dict)]
+        results_node = calculated_response[max(node_keys, key=lambda k: calculated_response[k].get('COORDINATES', [0,0,0])[2])]
+
+        responses_var['DISPLACEMENT_Y'].append(results_node['DISPLACEMENT_Y'])
+        responses_var['DISPLACEMENT_X'].append(results_node['DISPLACEMENT_X'])
+
+        # Velocity: prefer VELOCITY_Y; fall back to gradient of DISPLACEMENT_Y
+        time_arr = np.asarray(calculated_response['TIME'], dtype=float)
+        raw_vel = results_node.get('VELOCITY_Y')
+        if raw_vel is not None:
+            vel_arr = np.asarray(raw_vel, dtype=float)
+        else:
+            vel_arr = np.gradient(np.asarray(results_node['DISPLACEMENT_Y'], dtype=float), time_arr)
+
+        # Velocity metrics (V_eff_max, PSD_max, Freq_PSD_max)
+        if process_response_data is not None:
+            pd = process_response_data(time_arr, vel_arr)
+            responses_var['V_y_max'].append(pd['V_y_max'])
+            responses_var['V_eff_max'].append(pd['V_eff_max'])
+            responses_var['PSD_max'].append(pd['PSD_max'])
+            responses_var['Freq_PSD_max'].append(pd['Freq_PSD_max'])
+        else:
+            for key in ('V_y_max', 'V_eff_max', 'PSD_max', 'Freq_PSD_max'):
+                responses_var[key].append(np.nan)
+
+        # IBS third-octave spectrum
+        ibs = assess_ibs(time_arr, vel_arr, velocity_unit='m/s')
+        responses_var['ibs_summary_value'].append(ibs.summary_value)
+        responses_var['ibs_v_eff'].append(ibs.v_eff.tolist())
+        responses_var['ibs_Lv_dB'].append(ibs.Lv_dB.tolist())
+        responses_var['ibs_fdom'].append(ibs.fdom)
+        if responses_var['ibs_fc_bands'] is None:
+            responses_var['ibs_fc_bands'] = ibs.fc_bands.tolist()
 
         # Delete the output files
         # os.remove(path_to_results)
@@ -693,13 +777,21 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
             "variable_descriptions": {
                 "clay_density": "Clay layer density (kg/m³), mean=1500",
                 "clay_young_modulus": "Clay layer Young's modulus (Pa), mean=50e6",
-                "sand_density": "Sand layer density (kg/m³), mean=1900", 
+                "sand_density": "Sand layer density (kg/m³), mean=1900",
                 "sand_young_modulus": "Sand layer Young's modulus (Pa), mean=350e6",
                 "embankment_density": "Embankment layer density (kg/m³), mean=1900",
                 "embankment_young_modulus": "Embankment layer Young's modulus (Pa), mean=100e6",
-                "vertical_load": "Vertical load magnitude (N), mean=-10000, std=200 (Gaussian)",
+                "vertical_load": "Vertical load magnitude (N), mean=-30000, std=400 (Gaussian)",
                 "rayleigh_k": "Rayleigh damping parameter k, mean=0.0002, COV=5% (Gaussian)",
-                "rayleigh_m": "Rayleigh damping parameter m, mean=0.6, COV=5% (Gaussian)"
+                "rayleigh_m": "Rayleigh damping parameter m, mean=0.5, COV=5% (Gaussian)",
+                "rf_enabled": "Whether spatial random field was applied",
+                "rf_seed": "Random field seed (integer) for reproducibility",
+                "rf_part": "Model part name the RF was applied to",
+                "rf_property": "Material property name the RF was applied to",
+                "rf_cov": "Random field coefficient of variation",
+                "rf_model": "Random field correlation model (e.g. Gaussian)",
+                "rf_anisotropy": "Anisotropy ratio [horizontal/vertical scale]",
+                "rf_v_scale": "Vertical scale of fluctuation (m)"
             }
         },
         "simulations": all_simulation_variables
@@ -716,28 +808,21 @@ def run_3d_model(use_lhs=True, lhs_seed=42, num_simulations=10, check_model_only
             PlottingUtilities.plot_response_output(responses_dict=responses_var, disp_coord='Y', 
                                                    name_of_the_model='test', NUM_SIMS=NUM_SIMULATIONS)
         
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
-        # Plot displacement histories with load annotations
+        _, ax = plt.subplots()
         for i in range(NUM_SIMULATIONS):
             ax.plot(responses_var['TIME'], responses_var['DISPLACEMENT_X'][i], color='darkgray', alpha=0.3, label='Dis_X')
-            # Annotate with vertical load value
             x_last = responses_var['TIME'][-10]
             y_last = responses_var['DISPLACEMENT_X'][i][-10]
             ax.text(x_last, y_last, f'Load={VerticalLoad[i]:.1f}', fontsize=8, ha='left', va='center', color='blue')
             ax.plot(responses_var['TIME'], responses_var['DISPLACEMENT_Y'][i], color='red', alpha=0.3, label='Dis_Y')
-
-        
         ax.set_xlabel('Time [s]')
         ax.legend(loc='upper right')
-        ax.set_ylabel('Displacement [m]')  
+        ax.set_ylabel('Displacement [m]')
         plt.show()
     elif check_model_only and show_plots:
         print("Model check completed - creating plots...")
-        
-        # Create simple displacement plots for model check
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots()
+
+        _, ax = plt.subplots()
         
         # Plot X and Y displacements
         for i in range(NUM_SIMULATIONS):

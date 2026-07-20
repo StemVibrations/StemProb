@@ -24,10 +24,10 @@ The tutorial is organised as follows:
 The code blocks below build on each other, in order, within each chapter --
 paste them into a single script as you read to reproduce a chapter's
 results yourself. To skip ahead instead, each chapter has a complete,
-ready-to-run script: ``clean/tutorial_sensitivity_model.py`` (Build the base
-model), ``clean/tutorial_sensitivity_base.py`` together with
-``clean/tutorial_sensitivity_mc.py`` / ``clean/tutorial_sensitivity_rf.py``
-(Uncertainty quantification), and ``clean/tutorial_sensitivity_morris.py``
+ready-to-run script: ``docs/tutorial_sensitivity_model.py`` (Build the base
+model), ``docs/tutorial_sensitivity_base.py`` together with
+``docs/tutorial_sensitivity_mc.py`` / ``docs/tutorial_sensitivity_rf.py``
+(Uncertainty quantification), and ``docs/tutorial_sensitivity_morris.py``
 (Sensitivity analysis). These take real, unattended run time (the Morris
 script alone is ~100 STEM runs) -- that is expected, not a sign something is
 wrong.
@@ -368,11 +368,11 @@ meant to answer, a different output point, a different recorded quantity, or
 a different way of summarising the time series could be used instead.
 
 The two random-field helper functions below (``create_random_field_generator``,
-``create_parameter_field_parameters``) live in ``clean/random_field_utils.py``
-and ``clean/parameter_field_utils.py`` -- small wrappers that make the
+``create_parameter_field_parameters``) live in ``docs/random_field_utils.py``
+and ``docs/parameter_field_utils.py`` -- small wrappers that make the
 ``RandomFieldGenerator``/``ParameterFieldParameters`` construction robust
 across STEM versions. Keep those two files alongside your script (they ship
-in ``clean/`` next to this tutorial).
+in ``docs/`` next to this tutorial).
 
 .. code-block:: python
 
@@ -483,7 +483,7 @@ in ``clean/`` next to this tutorial).
 ..    # END CODE BLOCK
 
 This ``build_model`` / ``run_model`` pair (also saved for reference in
-``clean/tutorial_sensitivity_base.py``) is what every remaining code block in
+``docs/tutorial_sensitivity_base.py``) is what every remaining code block in
 this tutorial calls -- no further redefinition needed from here on.
 
 Uncertainty quantification
@@ -907,7 +907,7 @@ comparatively unimportant over the ranges screened here.
 
 Results
 ----------
-The figure below is the actual output of ``clean/tutorial_sensitivity_morris.py``
+The figure below is the actual output of ``docs/tutorial_sensitivity_morris.py``
 run with the settings documented above (``N=10``, ``num_levels=4``, 100 STEM
 runs), screening all nine parameters against ``max(|v_y|)`` at the
 toe-of-embankment / track-midpoint point.
@@ -977,4 +977,4 @@ in a mitigation measure's predicted performance.
 
 A full walkthrough -- defining a grid of points, running the design once,
 and post-processing the indices per location -- is covered in a follow-up
-section, adapted from ``clean/sa_distribution/run_sa_distribution.py``.
+section, adapted from ``docs/sa_distribution/run_sa_distribution.py``.

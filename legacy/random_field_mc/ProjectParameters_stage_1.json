@@ -1,8 +1,8 @@
 {
     "problem_data": {
-        "problem_name": "calculate_moving_load_on_embankment_2d",
+        "problem_name": "sensitivity_analysis_0",
         "start_time": 0.0,
-        "end_time": 10.0,
+        "end_time": 2,
         "echo_level": 1,
         "parallel_type": "OpenMP",
         "number_of_threads": 1
@@ -10,10 +10,10 @@
     "solver_settings": {
         "solver_type": "U_Pw",
         "model_part_name": "PorousDomain",
-        "domain_size": 2,
+        "domain_size": 3,
         "model_import_settings": {
             "input_type": "mdpa",
-            "input_filename": "calculate_moving_load_on_embankment_2d_stage_1"
+            "input_filename": "sensitivity_analysis_0_stage_1"
         },
         "material_import_settings": {
             "materials_filename": "MaterialParameters_stage_1.json"
@@ -34,9 +34,10 @@
         "block_builder": true,
         "rebuild_level": 0,
         "prebuild_dynamics": true,
+        "initialize_acceleration": false,
         "solution_type": "dynamic",
-        "rayleigh_m": 0.0001,
-        "rayleigh_k": 0.12,
+        "rayleigh_m": 0.13670187155638044,
+        "rayleigh_k": 0.0005243586555109241,
         "calculate_reactions": true,
         "rotation_dofs": true,
         "reset_displacements": false,
@@ -54,53 +55,70 @@
         "linear_solver_settings": {
             "solver_type": "amgcl",
             "scaling": false,
-            "tolerance": 1e-06,
-            "max_iteration": 1000
+            "tolerance": 1e-12,
+            "max_iteration": 1000,
+            "krylov_type": "cg",
+            "smoother_type": "ilu0",
+            "preconditioner_type": "amg",
+            "coarsening_type": "aggregation"
         },
         "problem_domain_sub_model_part_list": [
-            "layer1"
+            "soil_layer_1",
+            "soil_layer_2",
+            "embankment_layer"
         ],
         "processes_sub_model_part_list": [
-            "point_load",
+            "soil_layer_2_young_modulus_field",
+            "moving_load",
             "base_fixed",
             "sides_roller",
-            "layer1_young_modulus_field",
-            "midline_output",
+            "grid_output",
             "zero_water_pressure"
         ],
         "body_domain_sub_model_part_list": [
-            "layer1"
+            "soil_layer_1",
+            "soil_layer_2",
+            "embankment_layer"
         ]
     },
     "output_processes": {},
     "processes": {
         "json_output": [
             {
-                "python_module": "json_output_process",
-                "kratos_module": "KratosMultiphysics",
-                "process_name": "JsonOutputProcess",
+                "python_module": "fast_json_output_process",
+                "kratos_module": "KratosMultiphysics.RailwayApplication",
+                "process_name": "FastJsonOutputProcess",
                 "Parameters": {
-                    "model_part_name": "PorousDomain.midline_output",
-                    "output_file_name": "output/json_output_0.json",
+                    "model_part_name": "PorousDomain.grid_output",
+                    "output_file_name": "output/grid_output_1149.json",
                     "output_variables": [
-                        "DISPLACEMENT"
+                        "DISPLACEMENT",
+                        "VELOCITY"
                     ],
                     "gauss_points_output_variables": [],
-                    "time_frequency": 0.00049999
+                    "time_frequency": 0.04999999
                 }
             }
         ],
         "constraints_process_list": [
             {
+                "python_module": "set_parameter_field_process",
+                "kratos_module": "KratosMultiphysics.GeoMechanicsApplication",
+                "process_name": "SetParameterFieldProcess",
+                "Parameters": {
+                    "model_part_name": "PorousDomain.soil_layer_2_young_modulus_field",
+                    "variable_name": "YOUNG_MODULUS",
+                    "func_type": "json_file",
+                    "function": "dummy",
+                    "dataset": "dummy",
+                    "dataset_file_name": "soil_layer_2_young_modulus_field.json"
+                }
+            },
+            {
                 "python_module": "apply_vector_constraint_table_process",
                 "kratos_module": "KratosMultiphysics.GeoMechanicsApplication",
                 "process_name": "ApplyVectorConstraintTableProcess",
                 "Parameters": {
-                    "active": [
-                        true,
-                        true,
-                        true
-                    ],
                     "is_fixed": [
                         true,
                         true,
@@ -110,6 +128,11 @@
                         0.0,
                         0.0,
                         0.0
+                    ],
+                    "active": [
+                        true,
+                        true,
+                        true
                     ],
                     "model_part_name": "PorousDomain.base_fixed",
                     "variable_name": "DISPLACEMENT",
@@ -125,11 +148,6 @@
                 "kratos_module": "KratosMultiphysics.GeoMechanicsApplication",
                 "process_name": "ApplyVectorConstraintTableProcess",
                 "Parameters": {
-                    "active": [
-                        true,
-                        true,
-                        true
-                    ],
                     "is_fixed": [
                         true,
                         false,
@@ -140,6 +158,11 @@
                         0.0,
                         0.0
                     ],
+                    "active": [
+                        true,
+                        false,
+                        true
+                    ],
                     "model_part_name": "PorousDomain.sides_roller",
                     "variable_name": "DISPLACEMENT",
                     "table": [
@@ -148,44 +171,35 @@
                         0
                     ]
                 }
-            },
-            {
-                "python_module": "set_parameter_field_process",
-                "kratos_module": "KratosMultiphysics.GeoMechanicsApplication",
-                "process_name": "SetParameterFieldProcess",
-                "Parameters": {
-                    "model_part_name": "PorousDomain.layer1_young_modulus_field",
-                    "variable_name": "YOUNG_MODULUS",
-                    "func_type": "json_file",
-                    "function": "dummy",
-                    "dataset": "dummy",
-                    "dataset_file_name": "layer1_young_modulus_field.json"
-                }
             }
         ],
         "loads_process_list": [
             {
-                "python_module": "apply_vector_constraint_table_process",
-                "kratos_module": "KratosMultiphysics.GeoMechanicsApplication",
-                "process_name": "ApplyVectorConstraintTableProcess",
+                "python_module": "set_moving_load_process",
+                "kratos_module": "RailwayApplication",
+                "process_name": "SetMovingLoadProcess",
                 "Parameters": {
-                    "active": [
-                        false,
-                        true,
-                        false
-                    ],
-                    "value": [
+                    "load": [
                         0.0,
-                        -1000.0,
+                        -24982.664582379628,
                         0.0
                     ],
-                    "model_part_name": "PorousDomain.point_load",
+                    "velocity": 30,
+                    "origin": [
+                        0.75,
+                        3.0,
+                        0.0
+                    ],
+                    "offset": 0.0,
+                    "direction": [
+                        1,
+                        1,
+                        1
+                    ],
+                    "model_part_name": "PorousDomain.moving_load",
                     "variable_name": "POINT_LOAD",
-                    "table": [
-                        0,
-                        0,
-                        0
-                    ]
+                    "serialize": true,
+                    "clear_at_finalize": false
                 }
             },
             {
