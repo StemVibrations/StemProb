@@ -877,7 +877,7 @@ Interpreting the Morris results
   constant across the parameter space -- it is either nonlinear on its own or
   interacts with other parameters.
 
-The :math:`\mu` vs :math:`\sigma` scatter is a standard way to see this at a
+The :math:`\mu` vs *σ* scatter is a standard way to see this at a
 glance: points far from the dashed zero line have a strong average effect;
 points high up on the :math:`\sigma` axis have an effect that varies a lot
 across the sampled trajectories (nonlinear and/or interacting with other
