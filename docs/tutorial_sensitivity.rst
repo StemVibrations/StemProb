@@ -230,7 +230,7 @@ Output points
 STEM records the response at whichever coordinates are given here. As an
 example, this tutorial uses a single point at the toe of the embankment,
 roughly midway along the track (``x=3.0``, ``y=2.0``, ``z=25``); every step
-below tracks the vertical velocity (:math:`v_y`) at this point. This is just
+below tracks the vertical velocity (*v_y*) at this point. This is just
 an example choice for now -- for an actual design, the output point(s)
 should be chosen based on where the response actually matters (e.g. a
 building or receiver location), and may well be different.
