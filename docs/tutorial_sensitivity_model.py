@@ -111,7 +111,7 @@ model.add_output_settings_by_coordinates(
     coordinates=output_coordinates,
     part_name="sensitivity_output",
     output_parameters=JsonOutputParameters(
-        output_interval=0.05,
+        output_interval=0.1,  # matched to delta_time below -- finer has no effect
         nodal_results=nodal_results,
         gauss_point_results=[],
     ),

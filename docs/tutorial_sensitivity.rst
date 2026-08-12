@@ -1,36 +1,36 @@
 .. _tutorial_sensitivity:
 
-STEMProb tutorial -- probabilistic and sensitivity analysis of a 3D embankment model
+STEMProb tutorial; probabilistic and sensitivity analysis of a 3D embankment model
 ========================================================================================
 
 Overview
 --------
-This tutorial shows how to run uncertainty analyses on a STEM
-model of an embankment carrying a moving load: how much the vibration response
-varies given uncertain soil, load and damping parameters, and which of those
-parameters matter most.
+This tutorial shows how to run uncertainty analyses on a STEM model of an
+embankment under a moving load. The analyses show how much the vibration
+response changes with uncertain soil, load and damping parameters. The
+analyses also show which of those parameters matter most.
 
-The tutorial is organised as follows:
+The tutorial has three parts:
 
-1. **Build the base model** -- a small, fast-running 3D moving-load model that
-   will later be re-run many times, once per sample.
-2. **Uncertainty quantification** -- Monte Carlo / Latin Hypercube sampling
-   and Random Fields: propagate realistic parameter and spatial uncertainty
-   through the model and look at the resulting output distribution.
-3. **Sensitivity analysis** -- screen which of the uncertain parameters matter most for
-   the response.
+1. **Build the base model**: a small, fast-running 3D moving-load model.
+   Later steps re-run this model many times, once per sample.
+2. **Uncertainty quantification**: Monte Carlo / Latin Hypercube sampling
+   and Random Fields. These methods propagate realistic parameter and
+   spatial uncertainty through the model and show the resulting output
+   distribution.
+3. **Sensitivity analysis**: screen which of the uncertain parameters
+   matter most for the response.
 
-
-The code blocks below build on each other, in order, within each chapter --
-paste them into a single script as you read to reproduce a chapter's
-results yourself. To skip ahead instead, each chapter has a complete,
-ready-to-run script: ``docs/tutorial_sensitivity_model.py`` (Build the base
-model), ``docs/tutorial_sensitivity_base.py`` together with
+The code blocks below build on each other, in order, within each part.
+Paste them into a single script as you read, to reproduce a part's results
+yourself. To skip ahead instead, each part has a complete, ready-to-run
+script: ``docs/tutorial_sensitivity_model.py`` (Build the base model),
+``docs/tutorial_sensitivity_base.py`` together with
 ``docs/tutorial_sensitivity_mc.py`` / ``docs/tutorial_sensitivity_rf.py``
 (Uncertainty quantification), and ``docs/tutorial_sensitivity_morris.py``
-(Sensitivity analysis). These take real, unattended run time (the Morris
-script alone is ~100 STEM runs) -- that is expected, not a sign something is
-wrong.
+(Sensitivity analysis). These scripts take real, unattended run time. The
+Morris script alone runs STEM about 100 times. This run time is normal. It
+is not a sign that something is wrong.
 
 Build the base model
 ------------------
@@ -56,19 +56,19 @@ First the necessary packages are imported and the input folder is defined.
 
 Variables and their variation ranges
 -------------------------------------
-Nine parameters are varied across this tutorial: the density and Young's
-modulus of each of the three soil layers, the vertical load magnitude, and the
-two Rayleigh damping coefficients. Poisson's ratio (0.2) and porosity (0.3) are
-kept fixed for all layers.
+This tutorial varies nine parameters: the density and Young's modulus of
+each of the three soil layers, the vertical load magnitude, and the two
+Rayleigh damping coefficients. Poisson's ratio (0.2) and porosity (0.3)
+stay fixed for all layers.
 
-The table below lists, for each parameter, the reference ("mid-range") value
-used to build the single deterministic model in this step, and the
-``[min, max]`` range the Morris method will later sample from. These
-ranges were chosen deliberately for this simplified model; how
-realistic they are -- and what they should be for an actual design case --
-is something to revisit once a more representative model is set up. The
-Uncertainty quantification chapter uses its own, narrower uncertainty ranges
-around the same reference values -- see that chapter.
+The table below lists, for each parameter, the reference ("mid-range")
+value used to build the single deterministic model in this step. It also
+lists the ``[min, max]`` range the Morris method samples from later. This
+model is simplified, so revisit these ranges before an actual design case.
+Ask whether they are realistic. Ask what the correct ranges should be for
+a more representative model. The Uncertainty quantification part uses its
+own, narrower uncertainty ranges around the same reference values; see
+that part for details.
 
 .. list-table::
    :header-rows: 1
@@ -143,12 +143,12 @@ around the same reference values -- see that chapter.
 
 Geometry and materials
 ------------------------
-The geometry consists of two soil layers and an embankment on top, defined by
-coordinates in the x-y plane and extruded 50 m in the z-direction. The sand
-layer is the bottom layer (3 m thick), the clay layer sits directly under the
-embankment (1 m thick), and the embankment itself is a sloped fill on top,
-with its crest at ``x=0.75`` (where the track/load sits) and its far toe at
-``x=3.0``.
+The geometry has two soil layers and an embankment on top. Coordinates
+define each layer in the x-y plane. The model extrudes them 50 m in the
+z-direction. The sand layer is the bottom layer (3 m thick). The clay layer
+sits directly under the embankment (1 m thick). The embankment itself is a
+sloped fill on top. Its crest is at ``x=0.75`` (where the track/load sits).
+Its far toe is at ``x=3.0``.
 
 .. code-block:: python
 
@@ -192,8 +192,9 @@ with its crest at ``x=0.75`` (where the track/load sits) and its far toe at
 
 Load
 ----
-A single moving point load on the embankment crest stands in for the train
-(no rail, sleepers or UVEC), travelling at 30 m/s from ``[0.75, 3.0, 0.0]``.
+A single moving point load on the embankment crest stands in for the train.
+This model has no rail, sleepers or UVEC vehicle model. The load travels at
+30 m/s from ``[0.75, 3.0, 0.0]``.
 
 .. code-block:: python
 
@@ -206,34 +207,33 @@ A single moving point load on the embankment crest stands in for the train
 
 Why this model is deliberately small
 .....................................
-Uncertainty analyses need many independent model evaluations
-rather than a single run. To keep that affordable, the model used throughout
-this tutorial is intentionally reduced in every dimension that drives run
-time:
+Uncertainty analyses need many independent model evaluations, not a single
+run. To keep run time affordable, this tutorial reduces the model in every
+dimension that drives run time:
 
-* a narrow, 5 m wide soil cross-section, extruded only 50 m along the track,
-* a coarse 1 m mesh (``element_size=1.0``),
-* a short analysis duration of 2 s with a relatively large 0.1 s time step,
+* a narrow, 5 m wide soil cross-section, extruded only 50 m along the track,
+* a coarse 1 m mesh (``element_size=1.0``),
+* a short analysis duration of 2 s with a relatively large 0.1 s time step,
 * a single moving point load standing in for the train (no rail, sleepers or
   UVEC vehicle model),
 * no absorbing boundaries on the sides of the domain.
 
-All these makes the model not a true representative of a real vibration assessment --
-the domain is too short and narrow, the mesh too coarse, and the time step
-too large to capture the frequency content a real assessment would need. The
-model is only meant to be *fast enough to run many times in short time for the sake of fast reproducibility of the results* so that the
-methods themselves can be demonstrated.
+These reductions mean the model does not represent a real vibration
+assessment. The domain is too short and narrow. The mesh is too coarse. The
+time step is too large to capture the frequency content a real assessment
+needs. The model exists only to run fast, many times over, so this tutorial
+can demonstrate the methods themselves.
 
 
 Output points
 -------------
 STEM records the response at whichever coordinates are given here. As an
 example, this tutorial uses a single point at the toe of the embankment,
-roughly midway along the track (``x=3.0``, ``y=2.0``, ``z=25``); every step
-below tracks the vertical velocity (:math:`v_y`) at this point. This is just
-an example choice for now -- for an actual design, the output point(s)
-should be chosen based on where the response actually matters (e.g. a
-building or receiver location), and may well be different.
+roughly midway along the track (``x=3.0``, ``y=2.0``, ``z=25``). Every step
+below tracks the vertical velocity (*v_y*) at this point. This is only an
+example choice. For an actual design, choose the output point(s) based on
+where the response matters, for example a building or receiver location.
+That location may well be different from the one used here.
 
 .. code-block:: python
 
@@ -246,7 +246,7 @@ building or receiver location), and may well be different.
         coordinates=output_coordinates,
         part_name="sensitivity_output",
         output_parameters=JsonOutputParameters(
-            output_interval=0.05,
+            output_interval=0.1,
             nodal_results=nodal_results,
             gauss_point_results=[],
         ),
@@ -256,9 +256,9 @@ building or receiver location), and may well be different.
 
 ..    # END CODE BLOCK
 
-Adding output settings by coordinates alters the geometry, so it must be
-synchronised again afterwards. This is also a convenient point to inspect the
-generated surface ids, which are needed for the boundary conditions below.
+Adding output settings by coordinates alters the geometry. Synchronise the
+geometry again afterwards. This is also a convenient point to check the
+generated surface ids. The boundary conditions below need these ids.
 
 .. code-block:: python
 
@@ -269,15 +269,21 @@ generated surface ids, which are needed for the boundary conditions below.
 
 .. image:: _static/tutorial_sensitivity_geometry.png
     :align: center
-    :alt: Model geometry from model.show_geometry(show_surface_ids=True) -- sand, clay and embankment layers, extruded 50 m, with surface ids labelled.
+    :scale: 170%
+    :alt: Model geometry from model.show_geometry(show_surface_ids=True); sand, clay and embankment layers, extruded 50 m, with surface ids labelled.
 
 Boundary conditions, mesh and solver settings
 ------------------------------------------------
-The rest of the setup is standard STEM configuration: a fixed base with roller
-sides (no absorbing boundaries -- see the note above on why this model isn't
-representative of a real assessment), a coarse 1 m mesh, and a short 2 s
-dynamic analysis with a 0.1 s time step, using the reference Rayleigh damping
-values.
+The rest of the setup is standard STEM configuration. It has a fixed base
+with roller sides, and no absorbing boundaries (see the note above on why
+this model does not represent a real assessment). It uses a coarse
+1 m mesh, and a short 2 s dynamic analysis with a 0.1 s time step, with the
+reference Rayleigh damping values. The output interval above matches this
+0.1 s step. A finer value would have no effect, because STEM cannot report
+results between solver steps. A 0.1 s step is fairly coarse: its Nyquist
+frequency is 5 Hz, so it would understate higher-frequency content in a real
+assessment. This tutorial accepts that limit to keep run times short for
+repeated sampling; Monte Carlo, Morris, and RF ensembles all need many runs.
 
 .. code-block:: python
 
@@ -333,9 +339,9 @@ values.
 
 Running the base model
 ------------------------
-The model is now complete. The calculation is run once, using the reference
-parameter values, to confirm the model is set up correctly before moving on
-to the probabilistic analyses.
+The model is now complete. Run the calculation once, using the reference
+parameter values. This confirms the model is set up correctly before the
+probabilistic analyses.
 
 .. code-block:: python
 
@@ -347,32 +353,34 @@ to the probabilistic analyses.
 
 Wrapping the model as a function
 -----------------------------------
-Every step from here on -- Monte Carlo, Random Field, and sensitivity analysis -- repeats
-this model many times with different parameter values. It is convenient to
-wrap the model into two plain functions: one that builds it from a set of
-parameter values, and one that runs it and reduces the result down to a
-single number.
+Every step from here on repeats this model many times with different
+parameter values: Monte Carlo, Random Field, and sensitivity analysis all
+work this way. It is convenient to wrap the model into two plain functions.
+One function builds the model from a set of parameter values. The other
+function runs the model and reduces the result to a single number.
 
-``build_model`` below is the same construction as above -- materials,
-geometry, load, output point, boundary conditions, mesh, solver settings --
-with all nine table parameters turned into arguments instead of fixed
-reference values, plus two optional arguments (``rf_seed``, and its settings
-``rf_cov``/``rf_anisotropy``) used later by the Random Field chapter: when
-``rf_seed`` is given, a spatial random field is applied to the clay layer's
-Young's modulus on top of the ``clay_young_modulus`` value, using the same
-``RandomFieldGenerator`` mechanism as tutorial 4. ``run_model`` builds the
-model, runs it, and reads back the ``VELOCITY_Y`` time series at the output
-point, reducing it to its peak absolute value, ``max(|v_y|)``. That
-particular reduction is just an example: depending on what the study is
-meant to answer, a different output point, a different recorded quantity, or
-a different way of summarising the time series could be used instead.
+``build_model`` below builds the same model as above: materials, geometry,
+load, output point, boundary conditions, mesh, and solver settings. All nine
+table parameters are now arguments instead of fixed reference values. The
+function also takes two optional arguments, ``rf_seed`` and its settings
+``rf_cov``/``rf_anisotropy``, used later by the Random Field part. When
+``rf_seed`` is given, the function applies a spatial random field to the
+clay layer's Young's modulus, on top of the ``clay_young_modulus`` value.
+This uses the same ``RandomFieldGenerator`` mechanism as tutorial 4.
+``run_model`` builds the model, runs it, and reads back the ``VELOCITY_Y``
+time series at the output point. It reduces that time series to its peak
+absolute value, ``max(|v_y|)``. That reduction is only an example. Depending
+on what the study needs to answer, a different output point, a different
+recorded quantity, or a different way to summarise the time series may fit
+better.
 
-The two random-field helper functions below (``create_random_field_generator``,
-``create_parameter_field_parameters``) live in ``docs/random_field_utils.py``
-and ``docs/parameter_field_utils.py`` -- small wrappers that make the
-``RandomFieldGenerator``/``ParameterFieldParameters`` construction robust
-across STEM versions. Keep those two files alongside your script (they ship
-in ``docs/`` next to this tutorial).
+The two random-field helper functions below, ``create_random_field_generator``
+and ``create_parameter_field_parameters``, live in
+``docs/random_field_utils.py`` and ``docs/parameter_field_utils.py``. These
+are small wrappers that make the ``RandomFieldGenerator``/
+``ParameterFieldParameters`` construction robust across STEM versions. Keep
+those two files alongside your script; they ship in ``docs/`` next to this
+tutorial.
 
 .. code-block:: python
 
@@ -433,7 +441,7 @@ in ``docs/`` next to this tutorial).
             coordinates=[OUTPUT_POINT],
             part_name="sensitivity_output",
             output_parameters=JsonOutputParameters(
-                output_interval=0.05,
+                output_interval=0.1,
                 nodal_results=[NodalOutput.VELOCITY],
                 gauss_point_results=[],
             ),
@@ -482,31 +490,32 @@ in ``docs/`` next to this tutorial).
 
 ..    # END CODE BLOCK
 
-This ``build_model`` / ``run_model`` pair (also saved for reference in
-``docs/tutorial_sensitivity_base.py``) is what every remaining code block in
-this tutorial calls -- no further redefinition needed from here on.
+This ``build_model`` / ``run_model`` pair is also saved for reference in
+``docs/tutorial_sensitivity_base.py``. Every remaining code block in this
+tutorial calls this pair. No further redefinition is needed from here on.
 
 Uncertainty quantification
 ------------------------------
-A natural starting point for studying uncertainty in the model is to ask:
-given what is actually believed about the uncertainty in these parameters,
-what does the response look like -- its full distribution, not just a single
-number? Monte Carlo (MC) can answer that directly: draw many parameter
-sets from their uncertainty distributions, run the model for each, and look
-at the resulting spread of outputs. This is useful whenever the goal is to
-see the *distribution* of results over the uncertain parameters -- e.g. to
-estimate a probability of exceeding some vibration limit. This can be done 
-with either crude Monte Carlo or Latin Hypercube sampling, as described below.
+A natural starting point for studying uncertainty in the model is this
+question: given the believed uncertainty in these parameters, what does the
+response look like? This means the full distribution, not just a single
+number. Monte Carlo (MC) can answer that directly. Draw many parameter sets
+from their uncertainty distributions, run the model for each set, and look
+at the resulting spread of outputs. Use this method when the goal is to see
+the distribution of results over the uncertain parameters, for example to
+estimate a probability of exceeding a vibration limit. This tutorial does
+this with either crude Monte Carlo or Latin Hypercube sampling, described
+below.
 
-
-This chapter reuses ``build_model`` and ``run_model`` unchanged.
+This part reuses ``build_model`` and ``run_model`` unchanged.
 
 Monte Carlo and Latin Hypercube sampling
 ............................................
-Sampling needs *realistic* uncertainty. Material properties are given a
-lognormal distribution (always positive); load and damping are given a
-normal distribution. Both use a 5% coefficient of variation (COV) around the
-reference values -- an example choice, it is not valictaed through any geotechnical survey.
+Sampling needs realistic uncertainty. Material properties get a lognormal
+distribution, since they must stay positive. Load and damping get a normal
+distribution. Both use a 5% coefficient of variation (COV) around the
+reference values. This is an example choice. No geotechnical survey has
+validated it.
 
 .. list-table::
    :header-rows: 1
@@ -525,12 +534,12 @@ reference values -- an example choice, it is not valictaed through any geotechni
      - reference value
      - 5%
 
-As code, the same nine distributions, plus a helper that maps a Uniform[0,1]
-draw to a physical parameter value through that parameter's inverse CDF --
-this is what makes crude Monte Carlo and LHS interchangeable further down:
-both produce a Uniform[0,1] array, just with different coverage of the
-9-dimensional space, and this same function converts either to physical
-units.
+The code below defines the same nine distributions, plus a helper that maps
+a Uniform[0,1] draw to a physical parameter value through that parameter's
+inverse CDF. This helper makes crude Monte Carlo and LHS interchangeable
+further down. Both methods produce a Uniform[0,1] array, only with
+different coverage of the 9-dimensional space. This same function converts
+either array to physical units.
 
 .. code-block:: python
 
@@ -564,22 +573,22 @@ units.
 
 ..    # END CODE BLOCK
 
-Turning ``N`` draws from Uniform[0,1] per parameter into a sample set can be
-done in more than one way:
+There is more than one way to turn ``N`` draws from Uniform[0,1] per
+parameter into a sample set:
 
-* **Crude Monte Carlo** -- each parameter is drawn independently, ``N``
-  times. Simple, but for a modest ``N`` the samples can clump together and
+* **Crude Monte Carlo** draws each parameter independently, ``N`` times.
+  This is simple, but for a modest ``N`` the samples can clump together and
   leave gaps in the parameter space.
-* **Latin Hypercube Sampling (LHS)** -- each parameter's range is split into
-  ``N`` equal-probability bins, and exactly one sample is drawn per bin. This
-  spreads the ``N`` samples more evenly across the space, so for the same
-  sample budget LHS usually gives a more stable estimate of the output
-  distribution than crude Monte Carlo.
+* **Latin Hypercube Sampling (LHS)** splits each parameter's range into
+  ``N`` equal-probability bins, and draws exactly one sample per bin. This
+  spreads the ``N`` samples more evenly across the space. For the same
+  sample budget, LHS usually gives a more stable estimate of the output
+  distribution than crude Monte Carlo does.
 
-Either can be used here -- both just produce an ``(N, 9)`` array of Uniform[0,1]
-draws, which is then mapped to physical parameter values through each
-parameter's inverse CDF (see ``uniform_to_parameters`` in the script below).
-This tutorial uses LHS.
+Either method can be used here. Both produce an ``(N, 9)`` array of
+Uniform[0,1] draws. The code then maps that array to physical parameter
+values through each parameter's inverse CDF; see ``uniform_to_parameters``
+in the script below. This tutorial uses LHS.
 
 .. code-block:: python
 
@@ -596,8 +605,8 @@ This tutorial uses LHS.
 
 ..    # END CODE BLOCK
 
-The histogram below is drawn from ``v_y_max`` with a fitted lognormal curve,
-in the same style used throughout this tutorial:
+The histogram below is drawn from ``v_y_max`` with a fitted lognormal curve.
+This tutorial uses this same style throughout:
 
 .. code-block:: python
 
@@ -623,27 +632,28 @@ in the same style used throughout this tutorial:
 
 ..    # END CODE BLOCK
 
-The figure below is the actual output of this code (``N=30``, the
-distributions and settings documented above).
+The figure below is the actual output of this code, with ``N=30`` and the
+distributions and settings documented above.
 
 .. image:: _static/tutorial_sensitivity_mc_histogram_lhs.png
     :align: center
     :alt: Histogram of max|v_y| over 30 LHS samples with a lognormal fit.
 
-Across the 30 samples, ``max|v_y|`` at the toe-of-embankment point ranges from
-0.162 to 0.215 mm/s, with a mean of 0.189 mm/s and a coefficient of variation
-of about 7% -- i.e. propagating a 5% COV on each of the nine input parameters
-through the model gives roughly 7% COV on the response, at this point, for
-this reduced model with this limited number of samples.
+Across the 30 samples, ``max|v_y|`` at the toe-of-embankment point ranges
+from 0.162 to 0.215 mm/s. The mean is 0.189 mm/s, and the coefficient of
+variation is about 7%. In other words: for this reduced model, with this
+limited number of samples, a 5% COV on each of the nine input parameters
+gives roughly 7% COV on the response at this point.
 
 Random Field
 ............................................
-So far every parameter has been a single value per soil layer -- uniform
-across the whole domain (deterministic model). In reality soil properties vary spatially. STEM can
-generate a spatially correlated random field for a chosen material property
-directly, the same mechanism used in the tutorial_cpt_random_fields/docs/index.rst. Here we
-applied RF only to the clay layer's Young's modulus (``soil_layer_2``), keeping
-the other eight parameters fixed at their Step 1 reference values.
+So far every parameter has been a single value per soil layer, uniform
+across the whole domain: a deterministic model. In reality, soil properties
+vary spatially. STEM can generate a spatially correlated random field for a
+chosen material property directly. This is the same mechanism used in
+tutorial_cpt_random_fields/docs/index.rst. Here, RF is applied only to the
+clay layer's Young's modulus (``soil_layer_2``). The other eight parameters
+stay fixed at their Step 1 reference values.
 
 .. list-table::
    :header-rows: 1
@@ -658,7 +668,7 @@ the other eight parameters fixed at their Step 1 reference values.
    * - Coefficient of variation
      - 0.1
    * - Horizontal correlation length (anisotropy)
-     - 10 m
+     - 10 m
    * - Seed
      - 14 (single example run below); a range of seeds for the distribution
 
@@ -674,16 +684,17 @@ the other eight parameters fixed at their Step 1 reference values.
     :alt: Spatially-varying Young's modulus field on the clay layer for one random field realisation.
 
 
-The colour scale above is illustrative of the spatial uncertainty -- it shows what a
-Gaussian random field on a soil layer's Young's modulus actually looks like:
-smoothly varying in space rather than a single uniform value.
+The colour scale above illustrates the spatial uncertainty. It shows what a
+Gaussian random field on a soil layer's Young's modulus looks like: a
+smoothly varying field, not a single uniform value.
 
-A single run only gives one realisation of the field. As with Monte Carlo,
-repeating the run over a set of seeds (all other parameters unchanged) builds
-up a distribution of the response. Two reference values are added alongside
-that distribution: the seed-14 run already computed above, and a
+A single run gives only one realisation of the field. As with Monte Carlo,
+repeating the run over a set of seeds, with all other parameters unchanged,
+builds up a distribution of the response. Two reference values are added
+alongside that distribution: the seed-14 run already computed above, and a
 deterministic run with the same reference parameters and no random field at
-all (the same calculation as "Running the base model" earlier).
+all. That deterministic run is the same calculation as "Running the base
+model" earlier.
 
 .. code-block:: python
 
@@ -718,41 +729,43 @@ all (the same calculation as "Running the base model" earlier).
 
 ..    # END CODE BLOCK
 
-The figure below is the actual output of this code (20 random field
-realisations, seeds 1-20, settings as documented above).
+The figure below is the actual output of this code, with 20 random field
+realisations, seeds 1 to 20, and the settings documented above.
 
 .. image:: _static/tutorial_sensitivity_rf_histogram.png
     :align: center
     :alt: Histogram of max|v_y| over 20 random field realisations, with reference lines for seed 14 and the deterministic (no RF) run.
 
-The red dashed line marks the single-example run above (seed 14:
-0.1804 mm/s); the blue solid line marks the deterministic run with the same
-reference parameters and no random field at all (0.1883 mm/s) -- i.e. the
-same calculation as "Running the base model" in the first chapter of this tutorial. Across the 20
-realisations, ``max|v_y|`` ranges from 0.171 to 0.223 mm/s, mean 0.190 mm/s,
-CoV about 7% -- close to the Monte Carlo spread above, even though only *one*
-property (i.e., clay Young's modulus) is varied here, spatially, instead of all
-nine parameters varied as single values. This is not a general result -- it
-is a property of this particular model, output point and choice of RF
-settings -- but it illustrates the point of doing a Random Field study at
-all: spatial variability alone, at a realistic COV and correlation length,
-can be a significant source of response variability in its own right,
-separate from the parameter-to-parameter uncertainty covered above.
+The red dashed line marks the single-example run above: seed 14,
+0.1804 mm/s. The blue solid line marks the deterministic run, with the same
+reference parameters and no random field at all: 0.1883 mm/s. That
+deterministic run is the same calculation as "Running the base model" in the
+first part of this tutorial. Across the 20 realisations, ``max|v_y|``
+ranges from 0.171 to 0.223 mm/s, with a mean of 0.190 mm/s and a CoV of
+about 7%. This is close to the Monte Carlo spread above, even though only
+one property, the clay Young's modulus, varies here, and it varies
+spatially, not as a single value like all nine parameters in the Monte
+Carlo study. This is not a general result. It depends on this particular
+model, output point, and choice of RF settings. But it illustrates why a
+Random Field study is worth doing: spatial variability alone, at a
+realistic COV and correlation length, can be a significant source of
+response variability in its own right, separate from the
+parameter-to-parameter uncertainty covered above.
 
 Applying sensitivity analysis
 -------------------------------------
-Here we introduce two sensitivity analysis methods (i.e., Morris and FAST-RBD), 
-for details of the theory, see Saltelli, A., Ratto, M., Andres, T., Campolongo, 
-F., Cariboni, J., Gatelli, D., Saisana, M., and Tarantola, S. (2008), 
-*Global Sensitivity Analysis: The Primer*, John Wiley & Sons.
+This part introduces two sensitivity analysis methods: Morris and RBD-FAST.
+For details of the theory, see Saltelli, A., Ratto, M., Andres, T.,
+Campolongo, F., Cariboni, J., Gatelli, D., Saisana, M., and Tarantola, S.
+(2008), *Global Sensitivity Analysis: The Primer*, John Wiley & Sons.
 
-Morris is a *screening* method: it runs the model many times, each time
+Morris is a screening method. It runs the model many times, each time
 nudging one parameter at a time along a random path through the parameter
-space, and uses the resulting changes in the output (the "elementary
-effects") to rank which parameters matter most -- without needing anywhere
-near as many runs as a full variance-based method (e.g. the Sobol’ method) would.
+space. It uses the resulting changes in the output, the "elementary
+effects", to rank which parameters matter most. It needs far fewer runs
+than a full variance-based method, such as the Sobol' method, would need.
 
-This step reuses ``build_model`` and ``run_model`` from Step 1, together with
+This step reuses ``build_model`` and ``run_model`` from Step 1. It also uses
 a ``problem`` definition holding the nine parameter names and Morris ranges
 from the table earlier.
 
@@ -769,18 +782,18 @@ is controlled by a handful of settings.
      - What it controls
      - Used here
    * - ``N``
-     - Number of trajectories, :math:`r`. Total STEM runs = :math:`N \times (\text{num\_vars} + 1)`.
+     - Number of trajectories, *r*. Total STEM runs = *N × (num_vars + 1)*.
        More trajectories -> smoother, more reliable indices, at the cost of
        proportionally more runs.
      - 10 (100 runs total)
    * - ``num_levels``
-     - Number of levels, :math:`p`, in the grid each parameter is discretised
-       into. Each elementary-effect step covers :math:`p / (2(p-1))` of the
+     - Number of levels, *p*, in the grid each parameter is discretised
+       into. Each elementary-effect step covers *p / (2(p-1))* of the
        parameter's full range. Must be even for the standard Morris design.
      - 4
    * - ``scaled``
      - Whether the output values are standardised before computing the
-       indices. Left ``False`` here so ``mu``/``mu_star``/``sigma`` stay in
+       indices. Left ``False`` here so *μ*/*μ*\*/*σ* stay in
        the physical units of ``max(|v_y|)``.
      - ``False``
    * - ``seed`` (sampling)
@@ -814,13 +827,12 @@ is controlled by a handful of settings.
 
 Another method: RBD-FAST
 ----------------------------
-RBD-FAST (Random Balanced Design - Fourier Amplitude Sensitivity Test) is a 
-variance-based sensitivity method. It estimates each parameter's first-order 
-Sobol' index ``S1`` -- the fraction of output variance explained by that 
-parameter alone -- directly from an ordinary random or LHS sample, such as 
-the one already drawn for the Monte Carlo study in the Uncertainty 
-quantification chapter. No results are run for it in this tutorial, 
-but it is worth knowing it is available.
+RBD-FAST (Random Balanced Design - Fourier Amplitude Sensitivity Test) is a
+variance-based sensitivity method. It estimates each parameter's first-order
+Sobol' index *S_i* directly from an ordinary random or LHS sample. *S_i* is
+the fraction of output variance explained by that parameter alone. Real
+results for this method are shown further below, screened against the same
+nine parameters and the same output point as the Morris run above.
 
 .. list-table::
    :header-rows: 1
@@ -830,14 +842,14 @@ but it is worth knowing it is available.
      - Morris
      - RBD-FAST
    * - Output
-     - Elementary-effects ranking (``mu``, ``mu_star``, ``sigma``)
-     - First-order Sobol' index ``S1`` per parameter (normalised, 0-1)
+     - Elementary-effects ranking (*μ*, *μ*\*, *σ*)
+     - First-order Sobol' index *S_i* per parameter (normalised, 0-1)
    * - Sampling
      - Its own trajectory design
-     - Any random/LHS sample -- can reuse the Monte Carlo samples above
+     - Any independent random/LHS sample
    * - Interactions
-     - Flagged qualitatively via ``sigma``
-     - Not captured (``S1`` is first-order only)
+     - Flagged qualitatively via *σ*
+     - Not captured (*S_i* is first-order only)
    * - Best for
      - Cheap screening of many parameters
      - A normalised importance measure from samples already on hand
@@ -846,8 +858,8 @@ but it is worth knowing it is available.
 
 Sensitivity analysis workflow
 ---------------------
-Each row of ``samples`` is one full STEM run; once every output has been
-collected, the indices are computed in a single call.
+Each row of ``samples`` is one full STEM run. Once every output is
+collected, one call computes the indices.
 
 .. code-block:: python
 
@@ -864,24 +876,24 @@ Interpreting the Morris results
 ----------------------------------
 ``Si`` holds three arrays, one value per parameter:
 
-* ``mu`` -- the *signed* mean elementary effect. A **positive** value means
-  increasing that parameter tends to *increase* ``max(|v_y|)`` on average
-  across the sampled trajectories; a **negative** value means increasing it
-  tends to *decrease* the response.
-* ``mu_star`` -- the mean of the *absolute* elementary effects. Unlike ``mu``,
-  opposite-signed effects from different trajectories don't cancel out, which
-  makes ``mu_star`` the more reliable overall importance ranking, especially
-  for non-monotonic responses.
-* ``sigma`` -- the standard deviation of the elementary effects. A large
-  ``sigma`` relative to ``mu_star`` means the parameter's effect is not
-  constant across the parameter space -- it is either nonlinear on its own or
-  interacts with other parameters.
+* *μ* is the signed mean elementary effect. A **positive** value means
+  that increasing that parameter tends to increase ``max(|v_y|)`` on
+  average, across the sampled trajectories. A **negative** value means
+  that increasing it tends to decrease the response.
+* *μ*\* is the mean of the absolute elementary effects. Unlike *μ*,
+  opposite-signed effects from different trajectories do not cancel out.
+  This makes *μ*\* the more reliable overall importance ranking,
+  especially for non-monotonic responses.
+* *σ* is the standard deviation of the elementary effects. A large *σ*
+  relative to *μ*\* means the parameter's effect is not constant across
+  the parameter space. It is either nonlinear on its own, or it interacts
+  with other parameters.
 
-The :math:`\mu` vs :math:`\sigma` scatter is a standard way to see this at a
-glance: points far from the dashed zero line have a strong average effect;
-points high up on the :math:`\sigma` axis have an effect that varies a lot
-across the sampled trajectories (nonlinear and/or interacting with other
-parameters); points near the origin, on both axes, can be treated as
+The *μ* vs *σ* scatter is a standard way to see this at a glance. Points
+far from the dashed zero line have a strong average effect. Points high up
+on the *σ* axis have an effect that varies a lot across the sampled
+trajectories. This means the effect is nonlinear, or it interacts with
+other parameters, or both. Points near the origin, on both axes, are
 comparatively unimportant over the ranges screened here.
 
 .. code-block:: python
@@ -907,74 +919,319 @@ comparatively unimportant over the ranges screened here.
 
 Results
 ----------
-The figure below is the actual output of ``docs/tutorial_sensitivity_morris.py``
-run with the settings documented above (``N=10``, ``num_levels=4``, 100 STEM
-runs), screening all nine parameters against ``max(|v_y|)`` at the
-toe-of-embankment / track-midpoint point.
+The figure below is the actual output of
+``docs/tutorial_sensitivity_morris.py``, run with the settings documented
+above: ``N=10``, ``num_levels=4``, 100 STEM runs. It screens all nine
+parameters against ``max(|v_y|)`` at the toe-of-embankment / track-midpoint
+point.
 
 .. image:: _static/tutorial_sensitivity_morris_mu_sigma.png
     :align: center
-    :alt: Morris mu vs sigma scatter for max|v_y| at the toe-of-embankment output point.
+    :alt: Morris μ vs σ scatter for max|v_y| at the toe-of-embankment output point.
 
-Colour encodes the importance ranking by :math:`|\mu|` alone (1 = largest,
-shown yellow; 9 = smallest, shown dark purple) -- a quick ranking cue on top
-of the two axes, without accounting for the nonlinearity/interaction that
-:math:`\sigma` captures separately.
+Colour encodes the importance ranking by *|μ|* alone: 1 is largest, shown
+yellow. 9 is smallest, shown dark purple. This is a quick ranking cue on
+top of the two axes. It does not account for the nonlinearity or
+interaction that *σ* captures separately.
 
 By that ranking, ``clay_young_modulus``, ``vertical_load``,
-``sand_young_modulus`` and ``rayleigh_k`` are the four largest drivers of
-``max|v_y|`` at this point, and all four also sit highest on the
-:math:`\sigma` axis -- their effect is not just large on average, it also
-varies substantially across the sampled trajectories. All four have a
-**negative** :math:`\mu`: increasing clay or sand stiffness, or increasing
-the stiffness-proportional damping ``rayleigh_k``, tends to *decrease* the
-response, and increasing ``vertical_load`` (i.e. making the downward load
-less negative, so physically *smaller*) also decreases it -- equivalently, a
-*larger* load magnitude increases the response, which matches physical
-expectation. The remaining five parameters (``embankment_young_modulus``,
-``embankment_density``, ``clay_density``, ``rayleigh_m``, ``sand_density``)
-have small, positive :math:`\mu` and sit close to the origin on both axes --
+``sand_young_modulus``, and ``rayleigh_k`` are the four largest drivers of
+``max|v_y|`` at this point. All four also sit highest on the *σ* axis: their
+effect is not just large on average, it also varies substantially across
+the sampled trajectories. All four have a **negative** *μ*. Increasing clay
+or sand stiffness, or increasing the stiffness-proportional damping
+``rayleigh_k``, tends to decrease the response. Increasing ``vertical_load``
+also decreases it, because this makes the downward load less negative, so
+physically smaller. Equivalently, a larger load magnitude increases the
+response, which matches physical expectation. The remaining five
+parameters (``embankment_young_modulus``, ``embankment_density``,
+``clay_density``, ``rayleigh_m``, ``sand_density``) have small, positive
+*μ*, and sit close to the origin on both axes. These five are
 comparatively unimportant over the ranges screened here.
 
-With only ``N=10`` trajectories, this is still a modest screening run --
-combined with the reduced model size discussed above, treat the ranking as
-illustrative of the workflow rather than a converged, design-ready result.
-A more reliable screening would increase ``N`` further (e.g. 20-50) on top
-of using a more representative model.
+With only ``N=10`` trajectories, this is still a modest screening run.
+Combined with the reduced model size discussed above, treat this ranking as
+an illustration of the workflow, not a converged, design-ready result. A
+more reliable screening needs a larger ``N`` (for example 20-50) and a more
+representative model.
+
+RBD-FAST results
+--------------------
+This section checks how closely RBD-FAST agrees with the Morris ranking
+above. RBD-FAST runs here with ``N=100`` independent LHS samples over the
+same nine parameters and bounds, at the same output point, and screens the
+same quantity, ``max(|v_y|)``. Unlike Morris, RBD-FAST needs an independent
+sample. It does not use a trajectory design.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 55 25
+
+   * - Setting
+     - What it controls
+     - Used here
+   * - ``N``
+     - Number of independent LHS samples. More samples -> a smoother
+       spectral estimate of each parameter's *S_i*, at the cost of
+       proportionally more runs.
+     - 100 (100 runs total)
+   * - ``M``
+     - Number of harmonics used in the underlying Fourier decomposition.
+       SALib's default is used here.
+     - 10
+
+.. code-block:: python
+
+    from scipy.stats import qmc
+    from SALib.analyze import rbd_fast as rbd_fast_analyze
+
+    bounds = np.array(problem["bounds"])
+    sampler = qmc.LatinHypercube(d=problem["num_vars"], seed=42)
+    samples = qmc.scale(sampler.random(n=100), bounds[:, 0], bounds[:, 1])
+
+    outputs = np.empty(len(samples))
+    for i, sample in enumerate(samples):
+        outputs[i] = run_model(sample)["v_y_max"]
+
+    Si = rbd_fast_analyze.analyze(problem, samples, outputs, M=10, print_to_console=True)
+
+..    # END CODE BLOCK
+
+``Si["S1"]`` (denoted *S_i* below) is the one value per parameter this
+method produces: the fraction of output variance attributable to that
+parameter alone. Unlike Morris's *μ*/*μ*\*/*σ* triple, there
+is no separate measure of nonlinearity or interaction. A large gap
+between the sum of all *S_i* values and 1 would suggest parameter
+interactions RBD-FAST cannot see on its own.
+
+``docs/tutorial_sensitivity_rbd_fast.py`` runs this with the settings above
+(``N=100``, ``M=10``, 100 STEM runs), and screens the same nine parameters
+against ``max(|v_y|)`` at the same toe-of-embankment / track-midpoint point
+as the Morris run.
+
+RBD-FAST and Morris agree on which five parameters matter most:
+``clay_young_modulus``, ``vertical_load``, ``sand_young_modulus``,
+``rayleigh_k``, and ``embankment_young_modulus``. They also agree on which
+four matter least: ``embankment_density``, ``clay_density``,
+``rayleigh_m``, and ``sand_density``. The two methods only swap adjacent
+ranks within each group. For example, Morris ranks ``vertical_load`` above
+``sand_young_modulus``, and RBD-FAST ranks them the other way round. Both
+methods agree exactly that ``clay_young_modulus`` is the most important
+parameter. The small negative *S_i* values for ``clay_density`` and
+``embankment_density`` are estimation noise from finite sampling: *S_i* is
+a variance ratio, and in theory it should be non-negative. These small
+negative values are consistent with both parameters sitting at the bottom
+of the Morris ranking too.
+
+This is a useful cross-check, because the two methods are structurally
+different: one comes from elementary effects, the other from variance
+decomposition. The agreement suggests that the dominant-parameter
+conclusions from the Morris screening are not an artefact of that one
+method's particular sampling design, even at the modest sample sizes used
+by both methods here.
+
+``plot_rank_comparison`` in ``docs/tutorial_sensitivity_rbd_fast.py`` plots
+both methods' ranks side by side per parameter. Bar height is inverted, so
+rank 1 is the tallest bar, and the rank number is labelled at each bar's tip:
+
+.. code-block:: python
+
+    def plot_rank_comparison(names, morris_mu_star, rbd_S_i,
+                             path="sensitivity_plots/tutorial_sensitivity_rank_comparison.png"):
+        n = len(names)
+        morris_rank = np.argsort(np.argsort(-np.abs(np.asarray(morris_mu_star)))) + 1
+        rbd_rank = np.argsort(np.argsort(-np.asarray(rbd_S_i))) + 1
+
+        order = np.argsort(morris_rank)
+        x = np.arange(n)
+        width = 0.38
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        morris_h = n - morris_rank[order]
+        rbd_h = n - rbd_rank[order]
+        bars_m = ax.bar(x - width / 2, morris_h, width, color="#2a78d6", label="Morris (μ* rank)")
+        bars_r = ax.bar(x + width / 2, rbd_h, width, color="#eb6834", label="RBD-FAST (S_i rank)")
+
+        for bar, rank in zip(bars_m, morris_rank[order]):
+            ax.annotate(str(rank), (bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                       xytext=(0, 4), textcoords="offset points", ha="center", fontweight="bold")
+        for bar, rank in zip(bars_r, rbd_rank[order]):
+            ax.annotate(str(rank), (bar.get_x() + bar.get_width() / 2, bar.get_height()),
+                       xytext=(0, 4), textcoords="offset points", ha="center", fontweight="bold")
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([names[i].replace("_", "\n") for i in order], fontsize=8)
+        ax.set_yticks(np.arange(0, n))
+        ax.set_yticklabels([str(n - p) for p in range(0, n)])
+        ax.set_ylim(0, n)
+        ax.set_ylabel("Rank (1 = most important)")
+        ax.legend(loc="upper right")
+        fig.savefig(path, dpi=150)
+
+..    # END CODE BLOCK
+
+.. image:: _static/tutorial_sensitivity_rank_comparison.png
+    :align: center
+    :alt: Grouped bar chart comparing Morris and RBD-FAST parameter ranks, 1 to 9, for max|v_y|.
+
+``N=100`` samples for nine parameters is a small sample size for RBD-FAST.
+Treat the *S_i* magnitudes above as indicative, not converged or precise.
+Reliable magnitudes need substantially more samples than used here.
+Engineering judgement can still trust the ranking of the top three
+parameters, ``clay_young_modulus``, ``sand_young_modulus``, and
+``vertical_load``. Two independent, structurally different methods landing
+on the same top three, from two independent sample sets, is a stronger
+signal than either method's precision alone.
 
 Extending to multiple locations
 -----------------------------------
-Everything above screens parameter importance at one output point. The same
-Morris design can be evaluated at many points at once, at essentially no
-extra STEM cost: a single run can already report the response at any number
-of coordinates, so adding more output points to each of the samples above
-does not mean more runs -- only ``morris_analyze.analyze`` needs to be
+Knowing where a parameter matters, not just whether it matters, is
+directly useful. It can guide field surveys and monitoring campaigns
+toward the parameters and locations that actually drive the response,
+instead of spreading effort evenly.
+
+A spatial sensitivity study shows which parameter dominates at each
+location, so a field survey can target recording effort there. Reducing
+that parameter's uncertainty reduces the output uncertainty more than
+reducing any other's would. This is more efficient than spreading effort
+evenly.
+
+Spatial sensitivity also matters for the design and comparison of
+mitigation measures, such as trenches, walls, or foam barriers. A
+parameter dominant close to the track may be irrelevant at the receiver,
+and a mitigation measure placed between the two can shift which parameter
+matters where. Recording the response at several locations, not just one,
+shows this spatial shift directly. This gives a clearer picture of how
+impactful a mitigation measure actually is, and where it is most
+effective, once it is installed.
+
+The same sensitivity analysis can be evaluated at many points at once, at essentially
+no extra STEM cost. A single run can already report the response at any
+number of coordinates. Only ``morris_analyze.analyze`` needs to be
 called again per point, reusing the outputs already collected.
 
 .. code-block:: python
 
-    grid_points = [(x, 2.0, z) for x in [1.5, 3.0, 4.5] for z in [5.0, 15.0, 25.0, 35.0, 45.0]]
+    GRID_X = [3.0, 4.0]                                     # toe, and 1 m beyond it
+    GRID_Z = [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0]
+    grid_points = [(x, 2.0, z) for x in GRID_X for z in GRID_Z]   # 18 points
 
     # in build_model: replace the single OUTPUT_POINT with grid_points
     model.add_output_settings_by_coordinates(coordinates=grid_points, ...)
 
-    # after the Morris run loop: one analyze() call per point, same samples/problem
-    Si_per_point = {
-        point: morris_analyze.analyze(problem, samples, outputs_at[point], num_levels=num_levels)
-        for point in grid_points
+..    # END CODE BLOCK
+
+Worked example: dominant parameter by location
+....................................................
+``docs/sa_distribution/run_sa_distribution.py`` runs this idea end to end,
+on this tutorial's own STEM model, with the same ``N=10`` Morris design
+used above.
+
+The grid replaces the tutorial's single ``OUTPUT_POINT`` with 18 points:
+the embankment toe (``x=3``) and one metre beyond it (``x=4``), each along nine positions
+down the track. ``build_model`` is unchanged apart from that one
+substitution:
+
+.. code-block:: python
+
+    GRID_X = [3.0, 4.0]
+    GRID_Z = [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0]
+    GRID_POINTS = [(x, 2.0, z) for x in GRID_X for z in GRID_Z]       # 18 points
+    POINT_LABELS = [f"x{int(x)}_z{int(z)}" for x, _, z in GRID_POINTS]
+
+    model.add_output_settings_by_coordinates(
+        coordinates=GRID_POINTS,
+        part_name="sensitivity_output",
+        output_parameters=JsonOutputParameters(
+            output_interval=0.1,
+            nodal_results=[NodalOutput.VELOCITY],
+            gauss_point_results=[],
+        ),
+        output_dir="output",
+        output_name="sensitivity_output",
+    )
+
+..    # END CODE BLOCK
+
+The same ``N=10`` samples used for the single-point Morris result above
+already give 100 STEM runs, one full velocity time series per grid point
+each. Only the post-processing changes: instead of one
+``morris_analyze.analyze`` call, there is one call per point, reusing the
+same ``samples`` and ``outputs`` already collected per point:
+
+.. code-block:: python
+
+    mu_star_at_point = {}
+    for point in POINT_LABELS:
+        Si = morris_analyze.analyze(problem, samples, outputs_at[point], num_levels=num_levels)
+        mu_star_at_point[point] = Si["mu_star"]
+
+..    # END CODE BLOCK
+
+``mu_star_at_point[point]`` is a 9-value array, one *μ*\* per parameter.
+Plotted in plan view, for one parameter at a time, it shows how that one
+parameter's importance changes with location.
+
+.. code-block:: python
+
+    def plot_single_parameter_map(mu_star_at_point, param_name, path):
+        j = problem["names"].index(param_name)
+        values = np.array([[mu_star_at_point[f"x{int(x)}_z{int(z)}"][j] for z in GRID_Z]
+                           for x in GRID_X])
+
+        fig, ax = plt.subplots(figsize=(8, 4))
+        im = ax.pcolormesh(GRID_Z, GRID_X, values, shading="nearest")
+        for ix, x in enumerate(GRID_X):
+            for iz, z in enumerate(GRID_Z):
+                ax.text(z, x, f"{values[ix, iz]:.3g}", ha="center", va="center", color="white")
+        fig.colorbar(im, ax=ax, label="mu_star")
+        ax.set_xlabel("Along-track position z (m)")
+        ax.set_ylabel("Cross-track position x (m)")
+        ax.set_title(f"{param_name} -- mu* (v_y_max)")
+        fig.savefig(path, dpi=150)
+
+    plot_single_parameter_map(mu_star_at_point, "clay_young_modulus", "sa_mu_star_E_clay.png")
+    plot_single_parameter_map(mu_star_at_point, "embankment_density", "sa_mu_star_embankment_density.png")
+
+..    # END CODE BLOCK
+
+.. image:: _static/sa_mu_star_E_clay.png
+    :align: center
+    :alt: Plan-view map of Morris mu star for clay_young_modulus, at 18 grid points, for max|v_y|.
+
+.. image:: _static/sa_mu_star_embankment_density.png
+    :align: center
+    :alt: Plan-view map of Morris mu star for embankment_density, at 18 grid points, for max|v_y|.
+
+``clay_young_modulus`` has a high *μ*\* along the whole toe row (``x=3``,
+roughly 0.4 to 1.0), and a much lower one one metre further than embankment (``x=4``, below
+0.15 everywhere). ``embankment_density`` is low almost everywhere, at
+both rows, peaking at only 0.31. This matches the single-point Morris
+result above, which screened only the toe point at ``z=25``:
+``clay_young_modulus`` was the top-ranked parameter there, and
+``embankment_density`` ranked 6th of 9, in the lower half.
+
+Repeating this for all nine parameters, and keeping only the
+highest-*μ*\* parameter at each point, collapses the nine maps above into
+one: the dominant parameter by location.
+
+.. code-block:: python
+
+    dominant_at_point = {
+        point: problem["names"][np.argmax(mu_star_at_point[point])]
+        for point in POINT_LABELS
     }
 
-Knowing *where* a parameter matters, not just *whether* it matters, is
-directly useful: it can guide field surveys and monitoring campaigns toward
-the parameters and locations that actually drive the response, instead of
-spreading effort evenly. It also matters for further design and comparison of mitigation measures (trenches,
-walls, foam barriers): a parameter dominant close to the track may be
-irrelevant at the receiver, and a mitigation measure placed between the two
-can shift which parameter matters where. Once the most influential parameter
-at a location of interest is known, site investigation can target that
-parameter specifically, reducing its uncertainty and increasing confidence
-in a mitigation measure's predicted performance.
+..    # END CODE BLOCK
 
-A full walkthrough -- defining a grid of points, running the design once,
-and post-processing the indices per location -- is covered in a follow-up
-section, adapted from ``docs/sa_distribution/run_sa_distribution.py``.
+.. image:: _static/sa_dominant_parameter_map.png
+    :align: center
+    :alt: Plan-view map of the dominant parameter by Morris mu star, at 18 grid points, for max|v_y|.
+
+At the embankment toe (``x=3``), ``clay_young_modulus`` dominates at
+every one of the nine along-track points. One metre further out
+(``x=4``), past the toe, ``sand_young_modulus`` takes over as the dominant parameter at
+6 of the 9 points. This is consistent with the model's geometry: the
+embankment and clay layer sit close to the track, so their stiffness
+governs the response there, while the sand layer extends further and
+starts to govern the response at further distances from the track.

@@ -96,7 +96,7 @@ def build_model(clay_density, clay_young_modulus, sand_density, sand_young_modul
         coordinates=[OUTPUT_POINT],
         part_name="sensitivity_output",
         output_parameters=JsonOutputParameters(
-            output_interval=0.05,
+            output_interval=0.1,  # matched to delta_time below -- finer has no effect
             nodal_results=[NodalOutput.VELOCITY],
             gauss_point_results=[],
         ),

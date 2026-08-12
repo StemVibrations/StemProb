@@ -130,7 +130,7 @@ def build_model(clay_density, clay_young_modulus, sand_density, sand_young_modul
         coordinates=GRID_POINTS,
         part_name="sensitivity_output",
         output_parameters=JsonOutputParameters(
-            output_interval=0.05,
+            output_interval=0.1,  # matched to delta_time below -- finer has no effect
             nodal_results=[NodalOutput.VELOCITY],
             gauss_point_results=[],
         ),
@@ -230,6 +230,55 @@ def _plan_view(ax, xs, zs, values, title, cmap="viridis"):
     return im
 
 
+def plot_single_parameter_map(results_metric: dict, param_name: str, metric: str, path: str):
+    """Plan-view mu* map for one parameter -- the building block behind the
+    3x3 grid and the dominant-parameter map below."""
+    j = problem["names"].index(param_name)
+    values = np.array([[results_metric[f"x{int(x)}_z{int(z)}"]["mu_star"][j] for z in GRID_Z]
+                       for x in GRID_X])
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    im = _plan_view(ax, GRID_X, GRID_Z, values, title=f"{_PARAM_SHORT[param_name]} -- mu* ({metric})")
+    fig.colorbar(im, ax=ax, label="mu_star")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {path}")
+
+
+def plot_dominant_parameter_single(results_metric: dict, metric: str, path: str):
+    """Plan-view map for one metric: colour = index of the parameter with
+    the highest Morris mu* at each grid point."""
+    names = problem["names"]
+    n_p = len(names)
+    cmap = get_cmap("tab10", n_p)
+    x_edges, z_edges = _edges(GRID_X), _edges(GRID_Z)
+
+    dom = np.array([[np.argmax(results_metric[f"x{int(x)}_z{int(z)}"]["mu_star"])
+                     for z in GRID_Z] for x in GRID_X], dtype=float)
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.pcolormesh(z_edges, x_edges, dom, cmap=cmap, vmin=-0.5, vmax=n_p - 0.5, shading="flat")
+    for ix, x in enumerate(GRID_X):
+        for iz, z in enumerate(GRID_Z):
+            ax.text(z, x, _PARAM_SHORT[names[int(dom[ix, iz])]], ha="center", va="center",
+                    fontsize=8, color="white", fontweight="bold")
+
+    ax.axhline(TOE_X, color="gray", lw=0.8, ls="--")
+    ax.axhline(TRACK_X, color="orange", lw=1.2, ls="-")
+    ax.set_xlim(0, max(GRID_Z) + 5)
+    ax.set_ylim(0, max(GRID_X) + 1)
+    ax.set_xlabel("Along-track z (m)")
+    ax.set_ylabel("Cross-track x (m)")
+    ax.set_title(f"Dominant parameter -- {metric}")
+    patches = [mpatches.Patch(color=cmap(j), label=_PARAM_SHORT[names[j]]) for j in range(n_p)]
+    fig.legend(handles=patches, fontsize=7, loc="lower center", ncol=n_p, bbox_to_anchor=(0.5, -0.05))
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved: {path}")
+
+
 def plot_mu_star_map(results_metric: dict, metric: str, path: str):
     """3x3 plan-view grid: Morris mu* of each parameter at every grid point."""
     names = problem["names"]
@@ -321,5 +370,11 @@ if __name__ == "__main__":
 
     os.makedirs(PLOTS_DIR, exist_ok=True)
     plot_dominant_parameter(results, os.path.join(PLOTS_DIR, "dominant_parameter_map.png"))
+    plot_dominant_parameter_single(results["v_y_max"], "v_y_max",
+                                   os.path.join(PLOTS_DIR, "dominant_parameter_map_v_y_max.png"))
     plot_mu_star_map(results["v_y_max"], "v_y_max", os.path.join(PLOTS_DIR, "morris_mu_star_v_y_max.png"))
     plot_mu_star_map(results["v_eff_max"], "v_eff_max", os.path.join(PLOTS_DIR, "morris_mu_star_V_eff_max.png"))
+    plot_single_parameter_map(results["v_y_max"], "clay_young_modulus", "v_y_max",
+                              os.path.join(PLOTS_DIR, "mu_star_E_clay_v_y_max.png"))
+    plot_single_parameter_map(results["v_y_max"], "embankment_density", "v_y_max",
+                              os.path.join(PLOTS_DIR, "mu_star_embankment_density_v_y_max.png"))
